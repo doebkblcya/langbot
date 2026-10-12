@@ -1,6 +1,6 @@
 # LangBot 初期调研
 
-调研日期：2026-10-11。对象为 [langbot-app/LangBot](https://github.com/langbot-app/LangBot)，与我们本地同名项目区分。
+调研日期：2026-10-11。对象为第三方项目 [langbot-app/LangBot](https://github.com/langbot-app/LangBot)，与本项目 xiaolang 区分。
 
 ## 1. 结论
 
@@ -58,4 +58,4 @@ LongTermMemory 将稳定资料与事件记忆分开：前者注入系统提示�
 
 当前源码已将 LocalAgent 组织为官方 Runner 插件；稳定版对应代码仍在主仓库。不得混用两套组织方式，也未验证以上各仓库快照彼此兼容。
 
-本次仅阅读官方文档与源码，未部署、安装依赖、运行上游测试或连接 QQ。采用 LangBot、选择版本与项目改名均未作决定。
+本次仅阅读官方文档与源码，未部署、安装依赖、运行上游测试或连接 QQ。采用 LangBot 与选择版本尚未作决定。本项目名称已于 2026-10-12 确认为 xiaolang。

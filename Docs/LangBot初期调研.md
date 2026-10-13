@@ -2,6 +2,8 @@
 
 调研日期：2026-10-11。对象为第三方项目 [langbot-app/LangBot](https://github.com/langbot-app/LangBot)，与本项目 xiaolang 区分。
 
+状态补充（2026-10-14）：本文保留早期调研结论；当前已选择 TypeScript＋Cordis 4 自行编写主链路，详见 [当前功能与执行流程](主链路功能与执行流程.md)。下文“先验证 AstrBot”是当时建议，不代表当前实施方向，尚未部署。
+
 ## 1. 结论
 
 LangBot 是内置 Agent 能力的即时通信机器人开发平台，适合作为机器人基建候选。它覆盖平台接入、消息处理、模型与工具调用、知识库、插件和管理界面，不只是一个供代码导入的 Agent 库。[官方功能说明](https://langbot.app/docs/zh/insight/features/)

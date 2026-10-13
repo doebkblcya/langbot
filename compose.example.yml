@@ -1,0 +1,13 @@
+name: xiaolang
+services:
+  app:
+    build: .
+    image: xiaolang:local
+    init: true
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - ./config.local.json:/app/config.local.json:ro
+      - state:/app/data
+volumes:
+  state:

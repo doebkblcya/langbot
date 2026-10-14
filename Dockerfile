@@ -13,6 +13,6 @@ WORKDIR /app
 COPY --from=build /app/package.json ./
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist/src ./dist/src
-RUN mkdir /app/data && chown node:node /app/data
+RUN mkdir /app/data /app/plugins && chown node:node /app/data /app/plugins
 USER node
 CMD ["node", "dist/src/main.js"]

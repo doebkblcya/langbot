@@ -5,6 +5,10 @@
   "triggerWords": ["小狼", "xiaolang"],
   "groupIds": [],
   "chatEnabled": true,
+  "plugins": {
+    "directory": "plugins",
+    "entries": []
+  },
   "onebot": {
     "endpoint": "ws://xiaolang-napcat:3001",
     "timeoutMs": 15000,

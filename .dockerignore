@@ -5,3 +5,5 @@ data
 .env*
 config.local.json
 *.log
+plugins/
+.cordis/

@@ -75,7 +75,7 @@ export interface Output {
   send(turn: Turn, text: string, protocol: ModelMessage[], signal: AbortSignal): Promise<void>;
 }
 export interface Chat { idle(): Promise<void>; stop(): Promise<void> }
-export interface Log { code: string; turn?: string; stage?: string }
+export interface Log { code: string; turn?: string; stage?: string; plugin?: string; dependencies?: string[] }
 
 declare module 'cordis' {
   interface Context {

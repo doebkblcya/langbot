@@ -1,5 +1,8 @@
 import { Context, FiberState } from 'cordis';
 import type { Fiber, Plugin } from 'cordis';
+import { Loader } from '@cordisjs/plugin-loader';
+import { resolve, join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import type { Config } from './config.js';
 import type { Gateway, Log, Model } from './contracts.js';
 import { log } from './contracts.js';
@@ -12,6 +15,8 @@ import { OneBotConnection } from './onebot.js';
 import { ToolRegistry } from './tools.js';
 import { Sender } from './output.js';
 import { Failure } from './errors.js';
+import { checkPlugins, configurePlugins } from './plugins.js';
+import type { PluginStatus } from './plugins.js';
 
 export const storePlugin: Plugin.Object<Config> = {
   name: 'xiaolang-store', apply(ctx, config) {
@@ -77,6 +82,7 @@ export async function createApp(config: Config, options: AppOptions) {
   const ctx = new Context();
   const fibers: Fiber[] = [];
   let chat: Fiber | undefined;
+  let loader: Fiber | undefined;
   let connection: OneBotConnection | undefined;
   async function mount<T>(plugin: Plugin<T>, config: T): Promise<Fiber> {
     const fiber = await ctx.plugin(plugin, config);
@@ -97,10 +103,14 @@ export async function createApp(config: Config, options: AppOptions) {
     context.provide('gateway', connection);
   } };
   async function stop() {
-    await ctx.get('chat')?.stop();
-    if (chat && chat.state !== FiberState.DISPOSED) await chat.dispose();
-    for (const fiber of [...fibers].reverse()) if (fiber.state !== FiberState.DISPOSED) await fiber.dispose();
-    await ctx.fiber.dispose();
+    const active = ctx.get('chat');
+    try { if (typeof active?.stop === 'function') await active.stop(); }
+    finally {
+      if (chat && chat.state !== FiberState.DISPOSED) await chat.dispose();
+      if (loader && loader.state !== FiberState.DISPOSED) await loader.dispose();
+      for (const fiber of [...fibers].reverse()) if (fiber.state !== FiberState.DISPOSED) await fiber.dispose();
+      await ctx.fiber.dispose();
+    }
   }
   try {
     ctx.on('xiaolang/log', entry => { options.report?.(entry); });
@@ -113,8 +123,26 @@ export async function createApp(config: Config, options: AppOptions) {
     await mount(modelPlugin, undefined);
     await mount(gatewayPlugin, undefined);
     await mount(outputPlugin, config);
-    if (config.chatEnabled) chat = await mount(chatPlugin, config);
+    let plugins: PluginStatus[] = [];
+    if (config.plugins) {
+      // Loader resolves modules through the caller's context as well as its own.
+      ctx.baseUrl = pathToFileURL(join(resolve(config.plugins.directory), 'plugins.json')).href;
+      loader = await mount(Loader, {});
+      await configurePlugins(ctx, config.plugins, config.chatEnabled);
+    }
+    if (config.chatEnabled && !config.plugins?.chat) chat = await mount(chatPlugin, config);
+    if (config.plugins) plugins = await checkPlugins(ctx, config.plugins, config.chatEnabled);
+    if (config.chatEnabled) {
+      const active = ctx.get('chat');
+      if (!active || typeof active.idle !== 'function' || typeof active.stop !== 'function') throw new Failure('invalid_chat_service');
+    }
     connection?.start();
-    return { ctx, stop, stopChat: async () => { await ctx.get('chat')?.stop(); if (chat) await chat.dispose(); } };
+    return { ctx, plugins, stop, stopChat: async () => {
+      try { await ctx.get('chat')?.stop(); }
+      finally {
+        if (chat) await chat.dispose();
+        if (config.plugins?.chat) await ctx.loader.store[config.plugins.chat]?.fiber?.dispose();
+      }
+    } };
   } catch (error) { await stop(); throw error; }
 }

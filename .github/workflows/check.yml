@@ -17,3 +17,10 @@ jobs:
       - run: npm ci --ignore-scripts --no-fund --no-audit
       - run: npm test
       - run: docker build -t xiaolang:check .
+      - name: Load an external plugin in the built container without network access
+        run: |
+          docker run --rm --network none --entrypoint node \
+            -v "$GITHUB_WORKSPACE/examples/plugins:/app/plugins:ro" \
+            -v "$GITHUB_WORKSPACE/config.example.json:/app/config.example.json:ro" \
+            -v "$GITHUB_WORKSPACE/test/container-smoke.mjs:/smoke.mjs:ro" \
+            xiaolang:check /smoke.mjs

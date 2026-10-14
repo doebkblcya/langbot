@@ -7,3 +7,6 @@ data/
 config.local.json
 *.log
 .DS_Store
+.cordis/
+plugins/*
+!plugins/.gitkeep

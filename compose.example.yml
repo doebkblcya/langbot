@@ -9,5 +9,6 @@ services:
     volumes:
       - ./config.local.json:/app/config.local.json:ro
       - state:/app/data
+      - ./plugins:/app/plugins
 volumes:
   state:

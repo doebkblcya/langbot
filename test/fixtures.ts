@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { validateConfig } from '../src/config.js';
 import type { Config } from '../src/config.js';
-import type { Fields, Gateway, Model, ModelMessage, ToolSchema } from '../src/contracts.js';
+import type { Adapter, IncomingMessage, Message, Model, ModelMessage, ToolSchema } from '../src/contracts.js';
 
 export function config(): Config {
   const value = validateConfig(JSON.parse(readFileSync('config.example.json', 'utf8')));
@@ -10,16 +10,21 @@ export function config(): Config {
   value.model.timeoutMs = 1000;
   return value;
 }
-export function event(text: string, messageId = 1, group: number | null = 100, user = 200): Fields {
-  return { post_type: 'message', message_type: group ? 'group' : 'private', sub_type: group ? 'normal' : 'friend',
-    self_id: 123456789, user_id: user, group_id: group, message_id: messageId, time: 1700000000,
-    sender: { nickname: `user-${user}` }, message: [{ type: 'text', data: { text } }] };
+export function event(text: string, messageId = 1, group: number | string | null = 100, user: number | string = 200): IncomingMessage {
+  return { account: '123456789', sender: String(user), group: group === null ? undefined : String(group),
+    id: String(messageId), time: Date.now(), name: `user-${user}`, segments: [{ type: 'text', text }] };
 }
-export class FakeGateway implements Gateway {
-  sent: { action: string; params: Fields }[] = [];
-  async request(action: string, params: Fields): Promise<Fields> {
-    this.sent.push({ action, params });
-    return { message_id: this.sent.length + 1000 };
+export class FakeAdapter implements Adapter {
+  platform = 'mock';
+  account = '123456789';
+  capabilities = { groupMessages: 'all' as const, maxTextChars: 4000 };
+  receive?: (message: IncomingMessage) => void;
+  sent: { message: Message; text: string; part: number }[] = [];
+  start(receive: (message: IncomingMessage) => void): void { this.receive = receive; }
+  stop(): void { this.receive = undefined; }
+  async reply(message: Message, text: string, part: number): Promise<{ id: string }> {
+    this.sent.push({ message, text, part });
+    return { id: String(this.sent.length + 1000) };
   }
 }
 export class FakeModel implements Model {

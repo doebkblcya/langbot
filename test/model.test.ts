@@ -34,6 +34,6 @@ test('configuration rejects empty trigger words and embedded credentials', () =>
   value.triggerWords = [''];
   assert.throws(() => validateConfig(value), { code: 'invalid_config' });
   value.triggerWords = ['小狼'];
-  value.onebot.endpoint = 'ws://user:password@localhost:3001';
+  value.model.baseUrl = 'https://user:password@example.com';
   assert.throws(() => validateConfig(value), { code: 'invalid_url' });
 });

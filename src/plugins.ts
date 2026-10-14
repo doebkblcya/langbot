@@ -23,6 +23,10 @@ function contains(directory: string, file: string): boolean {
 }
 async function moduleName(ctx: Context, directory: string, entry: PluginEntry): Promise<string> {
   const name = entry.module;
+  if (name.startsWith('builtin:')) {
+    if (name !== 'builtin:qq-official') return fail(ctx, 'plugin_unknown_builtin', entry.id);
+    return new URL('./adapters/qq-official.js', import.meta.url).href;
+  }
   if (name.startsWith('./')) {
     try {
       const file = await realpath(resolve(directory, name));
@@ -47,9 +51,10 @@ async function moduleName(ctx: Context, directory: string, entry: PluginEntry): 
 export async function configurePlugins(ctx: Context, settings: PluginConfig, chatEnabled: boolean): Promise<void> {
   let directory = resolve(settings.directory);
   const enabled = settings.entries.filter(entry => !disabled(entry, settings, chatEnabled));
-  if (enabled.length) {
+  const workspaceEntries = enabled.filter(entry => !entry.module.startsWith('builtin:'));
+  if (workspaceEntries.length) {
     try { directory = await realpath(directory); }
-    catch { return fail(ctx, 'plugin_directory_missing', enabled[0]!.id); }
+    catch { return fail(ctx, 'plugin_directory_missing', workspaceEntries[0]!.id); }
   }
   const rows: EntryOptions[] = [];
   for (const entry of settings.entries) {

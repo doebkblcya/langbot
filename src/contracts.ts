@@ -1,17 +1,24 @@
 import type { Context } from 'cordis';
 
 export type Fields = Record<string, unknown>;
-export interface Segment { type: string; data: Fields }
-export interface Message {
-  key: string;
+export type Segment =
+  | { type: 'text'; text: string }
+  | { type: 'mention'; userId: string }
+  | { type: 'reply'; messageId: string }
+  | { type: 'unsupported'; kind: string };
+export interface IncomingMessage {
   account: string;
-  session: string;
   id: string;
   sender: string;
   name: string;
   group?: string;
   time: number;
   segments: Segment[];
+}
+export interface Message extends IncomingMessage {
+  key: string;
+  platform: string;
+  session: string;
   text: string;
   seq: number;
 }
@@ -34,8 +41,13 @@ export interface ToolSchema {
 export interface Model {
   complete(messages: ModelMessage[], tools: ToolSchema[], signal: AbortSignal): Promise<ModelMessage>;
 }
-export interface Gateway {
-  request(action: string, params: Fields, signal: AbortSignal): Promise<Fields>;
+export interface Adapter {
+  platform: string;
+  account: string;
+  capabilities: { groupMessages: 'all' | 'mentions'; maxTextChars: number };
+  start(receive: (message: IncomingMessage) => void): Promise<void> | void;
+  stop(): Promise<void> | void;
+  reply(message: Message, text: string, part: number, signal: AbortSignal): Promise<{ id: string }>;
 }
 export type TurnState = 'queued' | 'running' | 'sending' | 'completed' | 'failed' | 'cancelled' | 'unknown' | 'expired';
 export interface Turn { id: string; message: Message; reason: string }
@@ -84,7 +96,7 @@ declare module 'cordis' {
     trigger: Trigger;
     intake: Intake;
     model: Model;
-    gateway: Gateway;
+    adapter: Adapter;
     tools: Tools;
     output: Output;
     chat: Chat;
@@ -103,7 +115,7 @@ export function object(value: unknown): Fields | undefined {
   return value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Fields : undefined;
 }
 export function id(value: unknown): string | undefined {
-  if (typeof value === 'string' && value.length > 0 && value.length <= 128) return value;
+  if (typeof value === 'string' && value.length > 0 && value.length <= 512) return value;
   if (typeof value === 'number' && Number.isSafeInteger(value)) return String(value);
   return undefined;
 }

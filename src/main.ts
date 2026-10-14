@@ -9,19 +9,27 @@ async function main(): Promise<void> {
     return;
   }
   if (process.platform !== 'linux') throw new Failure('runtime_requires_linux');
-  if (!process.env.DEEPSEEK_API_KEY || !process.env.ONEBOT_TOKEN) throw new Failure('missing_runtime_credentials');
-  const app = await createApp(config, {
-    apiKey: process.env.DEEPSEEK_API_KEY, onebotToken: process.env.ONEBOT_TOKEN,
-    report: entry => console.info(JSON.stringify({ time: new Date().toISOString(), ...entry })),
-  });
+  if (!process.env.DEEPSEEK_API_KEY) throw new Failure('missing_model_key');
+  const controller = new AbortController();
+  let app: Awaited<ReturnType<typeof createApp>> | undefined;
   let stopping = false;
   const stop = () => {
     if (stopping) return;
     stopping = true;
-    void app.stop().then(() => { process.exitCode = 0; }, () => { process.exitCode = 1; });
+    controller.abort();
+    if (app) void app.stop().then(() => { process.exitCode = 0; }, () => { process.exitCode = 1; });
   };
   process.once('SIGINT', stop);
   process.once('SIGTERM', stop);
+  try {
+    app = await createApp(config, {
+      apiKey: process.env.DEEPSEEK_API_KEY, signal: controller.signal,
+      report: entry => console.info(JSON.stringify({ time: new Date().toISOString(), ...entry })),
+    });
+  } catch (error) {
+    if (controller.signal.aborted) { process.exitCode = 0; return; }
+    throw error;
+  }
   console.info(JSON.stringify({ code: 'application_ready' }));
 }
 void main().catch(error => {

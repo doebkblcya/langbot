@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { SessionQueue } from '../src/scheduler.js';
 import { ToolRegistry } from '../src/tools.js';
 import { normalize } from '../src/messages.js';
-import { event, deferred } from './fixtures.js';
+import { event, deferred, FakeAdapter } from './fixtures.js';
 import { setTimeout as delay } from 'node:timers/promises';
 
 test('same-session FIFO and independent-session progress respect concurrency', async () => {
@@ -27,7 +27,7 @@ test('tool arguments are validated and plugin removal cancels an in-flight execu
   const started = deferred();
   const remove = tools.register({ name: 'test', description: 'test', parameters: { type: 'object', properties: { value: { type: 'integer' } }, required: ['value'], additionalProperties: false },
     execute: async () => { executed++; started.resolve(); return new Promise(() => {}); } });
-  const message = normalize(event('小狼'), '123456789', [])!;
+  const message = normalize(event('小狼'), new FakeAdapter(), [])!;
   await assert.rejects(tools.execute({ id: '1', type: 'function', function: { name: 'test', arguments: '{"value":"bad"}' } }, message, new AbortController().signal), { code: 'invalid_tool_arguments' });
   assert.equal(executed, 0);
   const task = tools.execute({ id: '2', type: 'function', function: { name: 'test', arguments: '{"value":1}' } }, message, new AbortController().signal);

@@ -8,14 +8,14 @@ import { promisify } from 'node:util';
 import { createApp } from '../src/app.js';
 import { validateConfig } from '../src/config.js';
 import type { Log } from '../src/contracts.js';
-import { config, event, FakeGateway, FakeModel } from './fixtures.js';
+import { config, event, FakeAdapter, FakeModel } from './fixtures.js';
 
 async function workspace(t: { after: (callback: () => Promise<void>) => void }) {
   const directory = await mkdtemp(join(tmpdir(), 'xiaolang-plugins-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   return directory;
 }
-const mocks = () => ({ gateway: new FakeGateway(), model: new FakeModel() });
+const mocks = () => ({ adapter: new FakeAdapter(), model: new FakeModel() });
 
 test('an external plugin loads through the official Loader, uses config and unregisters its tool', async t => {
   const directory = await workspace(t);
@@ -23,11 +23,11 @@ test('an external plugin loads through the official Loader, uses config and unre
   await writeFile(join(directory, 'hello/index.mjs'), await readFile('examples/plugins/hello/index.mjs'));
   const settings = config();
   settings.plugins = { directory, entries: [{ id: 'hello', module: './hello/index.mjs', config: { greeting: '欢迎' } }] };
-  const gateway = new FakeGateway();
+  const adapter = new FakeAdapter();
   const model = new FakeModel(async messages => messages.at(-1)?.role === 'tool'
     ? { role: 'assistant', content: messages.at(-1)!.content }
     : { role: 'assistant', content: null, tool_calls: [{ id: 'external-greet', type: 'function', function: { name: 'greet', arguments: '{"name":"朋友"}' } }] });
-  const app = await createApp(settings, { model, gateway });
+  const app = await createApp(settings, { model, adapter });
   t.after(() => app.stop());
   assert.equal(app.ctx.loader.constructor.name, 'Loader');
   assert.deepEqual(app.plugins, [{ id: 'hello', state: 'active' }]);
@@ -38,8 +38,8 @@ test('an external plugin loads through the official Loader, uses config and unre
   assert.equal(await app.ctx.tools.execute({ id: '1', type: 'function', function: { name: 'greet', arguments: '{"name":"朋友"}' } }, message, new AbortController().signal), '欢迎，朋友。');
   app.ctx.intake.receive(event('小狼向朋友问好', 2));
   await app.ctx.chat.idle();
-  assert.equal(gateway.sent.length, 1);
-  assert.ok(JSON.stringify(gateway.sent).includes('欢迎，朋友。'));
+  assert.equal(adapter.sent.length, 1);
+  assert.ok(JSON.stringify(adapter.sent).includes('欢迎，朋友。'));
   await app.ctx.loader.store.hello!.fiber!.dispose();
   assert.ok(!app.ctx.tools.schemas().some(tool => tool.function.name === 'greet'));
 });
@@ -136,7 +136,7 @@ test('selecting an external chat plugin replaces the default and respects the ma
   const settings = config();
   settings.plugins = { directory, chat: 'custom', entries: [{ id: 'custom', module: './chat.mjs' }] };
   const model = new FakeModel();
-  const app = await createApp(settings, { model, gateway: new FakeGateway(), report: entry => logs.push(entry) });
+  const app = await createApp(settings, { model, adapter: new FakeAdapter(), report: entry => logs.push(entry) });
   app.ctx.intake.receive(event('小狼', 1));
   assert.equal(logs.filter(entry => entry.code === 'custom_reply').length, 1);
   assert.equal(model.requests.length, 0);
@@ -168,8 +168,8 @@ test('a new process loads changed plugin files without changing the application 
   settings.plugins = { directory, entries: [{ id: 'revision', module: './revision.mjs' }] };
   const script = `
     import {createApp} from ${JSON.stringify(new URL('../src/app.js', import.meta.url).href)};
-    import {FakeModel, FakeGateway} from ${JSON.stringify(new URL('./fixtures.js', import.meta.url).href)};
-    const app = await createApp(${JSON.stringify(settings)}, {model:new FakeModel(), gateway:new FakeGateway()});
+    import {FakeModel, FakeAdapter} from ${JSON.stringify(new URL('./fixtures.js', import.meta.url).href)};
+    const app = await createApp(${JSON.stringify(settings)}, {model:new FakeModel(), adapter:new FakeAdapter()});
     console.info(JSON.stringify(app.ctx.get('revision')));
     await app.stop();
   `;

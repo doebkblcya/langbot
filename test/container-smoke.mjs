@@ -22,13 +22,15 @@ const app = await createApp(config, {
       ] };
     },
   },
-  gateway: { request: async (_action, params) => { delivered = JSON.stringify(params.message); return { message_id: 1 }; } },
+  adapter: {
+    platform: 'mock', account: 'test-app', capabilities: { groupMessages: 'all', maxTextChars: 4000 },
+    start() {}, stop() {}, reply: async (_message, text) => { delivered = text; return { id: '1' }; },
+  },
 });
 try {
   app.ctx.intake.receive({
-    post_type: 'message', message_type: 'private', sub_type: 'friend',
-    self_id: Number(config.account), user_id: 200, message_id: 1,
-    message: [{ type: 'text', data: { text: '向小狼问好' } }],
+    account: 'test-app', sender: 'user-openid', id: '1', name: '测试用户', time: Date.now(),
+    segments: [{ type: 'text', text: '向小狼问好' }],
   });
   await app.ctx.chat.idle();
   assert.equal(requests, 2);

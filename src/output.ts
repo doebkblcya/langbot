@@ -1,4 +1,4 @@
-import type { Gateway, ModelMessage, Output, Store, Turn } from './contracts.js';
+import type { Adapter, ModelMessage, Output, Store, Turn } from './contracts.js';
 import { id } from './contracts.js';
 import { check, Failure } from './errors.js';
 
@@ -9,23 +9,22 @@ export function splitText(text: string, limit: number): string[] {
   return parts;
 }
 export class Sender implements Output {
-  constructor(private store: Store, private gateway: Gateway, private limit: number) {}
+  constructor(private store: Store, private adapter: Adapter, private limit: number) {}
   async send(turn: Turn, text: string, protocol: ModelMessage[], signal: AbortSignal): Promise<void> {
     check(signal);
     if (!text.trim()) throw new Failure('empty_reply');
-    const parts = splitText(text, this.limit);
+    if (turn.message.platform !== this.adapter.platform || turn.message.account !== this.adapter.account) throw new Failure('adapter_target_mismatch');
+    const parts = splitText(text, Math.min(this.limit, this.adapter.capabilities.maxTextChars));
     this.store.draft(turn.id, text, protocol);
     this.store.prepareSend(turn.id, parts);
     const platformIds: string[] = [];
     for (const [part, content] of parts.entries()) {
       check(signal);
       this.store.sendState(turn.id, part, 'sending');
-      const params = { message: [{ type: 'text', data: { text: content } }],
-        ...(turn.message.group ? { group_id: turn.message.group } : { user_id: turn.message.sender }) };
       let platformId: string;
       try {
-        const response = await this.gateway.request(turn.message.group ? 'send_group_msg' : 'send_private_msg', params, signal);
-        const receivedId = id(response.message_id);
+        const response = await this.adapter.reply(turn.message, content, part, signal);
+        const receivedId = id(response.id);
         if (!receivedId) throw new Failure('send_invalid_receipt', true);
         platformId = receivedId;
       } catch (error) {

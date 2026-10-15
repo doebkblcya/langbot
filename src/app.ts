@@ -98,7 +98,7 @@ export async function createApp(config: Config, options: AppOptions) {
   };
   const stateName = (fiber?: Fiber) => fiber?.state === FiberState.ACTIVE ? 'active' : fiber?.state === FiberState.FAILED ? 'failed'
     : fiber?.state === FiberState.DISPOSED ? 'disabled' : fiber?.state === FiberState.UNLOADING ? 'stopping' : 'pending';
-  const provided = (fiber?: Fiber) => Object.entries(fiber?.store ?? {}).filter(([, implementation]) => implementation.fiber === fiber).map(([name]) => name);
+  const provided = (fiber?: Fiber) => Object.entries(fiber?.store ?? {}).filter(([, implementation]) => fiber?.uid != null && implementation.fiber.uid === fiber.uid).map(([name]) => name);
   function pluginList(): PluginInfo[] {
     const core: PluginInfo[] = fibers.map(fiber => ({ id: fiber.name || 'loader', title: metadata[fiber.name]?.[0] ?? 'Cordis 插件加载器',
       module: metadata[fiber.name]?.[1] ?? '@cordisjs/plugin-loader', kind: 'builtin', state: stateName(fiber), dependencies: Object.keys(fiber.inject), provides: provided(fiber) }));

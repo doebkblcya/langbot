@@ -61,6 +61,7 @@ test('trigger settings survive restart and a custom provider replaces the defaul
     assert.ok(plugins.some(plugin => plugin.id === id && plugin.kind === 'builtin' && plugin.state === 'active'));
   }
   assert.ok(plugins.find(plugin => plugin.id === 'xiaolang-chat')?.dependencies.includes('trigger'));
+  assert.deepEqual(plugins.find(plugin => plugin.id === 'xiaolang-chat')?.provides, ['chat']);
   await app.stopChat();
   assert.equal(app.ctx.inspection.status().plugins.find(plugin => plugin.id === 'xiaolang-chat')?.state, 'disabled');
   await app.stop();

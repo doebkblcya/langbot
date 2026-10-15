@@ -98,9 +98,10 @@ export async function createApp(config: Config, options: AppOptions) {
   };
   const stateName = (fiber?: Fiber) => fiber?.state === FiberState.ACTIVE ? 'active' : fiber?.state === FiberState.FAILED ? 'failed'
     : fiber?.state === FiberState.DISPOSED ? 'disabled' : fiber?.state === FiberState.UNLOADING ? 'stopping' : 'pending';
+  const provided = (fiber?: Fiber) => Object.entries(fiber?.store ?? {}).filter(([, implementation]) => implementation.fiber === fiber).map(([name]) => name);
   function pluginList(): PluginInfo[] {
     const core: PluginInfo[] = fibers.map(fiber => ({ id: fiber.name || 'loader', title: metadata[fiber.name]?.[0] ?? 'Cordis 插件加载器',
-      module: metadata[fiber.name]?.[1] ?? '@cordisjs/plugin-loader', kind: 'builtin', state: stateName(fiber), dependencies: Object.keys(fiber.inject), provides: Object.keys(fiber.store ?? {}) }));
+      module: metadata[fiber.name]?.[1] ?? '@cordisjs/plugin-loader', kind: 'builtin', state: stateName(fiber), dependencies: Object.keys(fiber.inject), provides: provided(fiber) }));
     if (!config.chatEnabled && !config.plugins?.chat) core.push({ id: 'xiaolang-chat', title: '默认聊天编排', module: 'src/chat.ts', kind: 'builtin', state: 'disabled', dependencies: ['store', 'scheduler', 'trigger', 'model', 'tools', 'output'], provides: ['chat'] });
     if (config.failureFeedback?.enabled === false) core.push({ id: 'xiaolang-fault-feedback', title: '故障反馈', module: 'src/fault-feedback.ts', kind: 'builtin', state: 'disabled', dependencies: ['output'], provides: ['faultFeedback'] });
     const entries = [...(config.plugins?.entries ?? [])];
@@ -111,7 +112,7 @@ export async function createApp(config: Config, options: AppOptions) {
         : entry.id === config.plugins?.chat ? '聊天编排（替换插件）' : entry.id === 'panel' ? '管理面板' : entry.id === 'console-logger' ? '终端日志展示' : entry.id,
         module: entry.module, kind: entry.module.startsWith('builtin:') ? 'builtin' as const : 'external' as const,
         state: entry.enabled === false || (entry.id === config.plugins?.chat && !config.chatEnabled) ? 'disabled' : stateName(fiber),
-        dependencies: fiber ? Object.keys(fiber.inject) : [], provides: Object.keys(fiber?.store ?? {}) };
+        dependencies: fiber ? Object.keys(fiber.inject) : [], provides: provided(fiber) };
     })];
   }
   const beforeReady: IncomingMessage[] = [];

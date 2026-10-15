@@ -1,14 +1,19 @@
 name: xiaolang
 services:
   app:
-    build: .
-    image: xiaolang:local
+    image: ${XIAOLANG_IMAGE:-xiaolang:local}
+    container_name: xiaolang
     init: true
     restart: unless-stopped
+    mem_limit: 512m
+    stop_grace_period: 30s
     env_file: .env
     volumes:
       - ./config.local.json:/app/config.local.json:ro
-      - state:/app/data
+      - ./data:/app/data
       - ./plugins:/app/plugins
-volumes:
-  state:
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"

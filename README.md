@@ -35,14 +35,15 @@ XIAOLANG_CONFIG=config.example.json node dist/src/main.js --check-config
 
 ## NAS 运行准备
 
-**NAS 写操作仍需用户审批。**本仓库的 Dockerfile 和 Compose 文件是准备材料，尚未构建验收或部署到 NAS。
+用户已批准在独立的小狼 Docker 范围内部署和联调，无需为该范围内的常规操作逐次确认。Linux 镜像及无网络容器验证已通过；真实 NAS 部署尚未完成。
 
-1. 后续获批后，在固态存储空间的独立目录准备小狼容器；现有 AstrBot／NapCat 不改动。
+1. NAS 目录使用 `/vol1/1000/sys/docker/xiaolang`，Compose 项目及容器名为 `xiaolang`；现有 AstrBot／NapCat 不改动。
 2. 将 `config.example.json` 复制为 `config.local.json`，填写 `adapter.config.appId`。`environment: "sandbox"` 使用官方沙箱地址，按后台配置测试成员和群；实际生产接入另设 `"production"`。两种环境的历史命名空间隔离。
-3. 将 `.env.example` 复制为 `.env`，在 NAS 本地填入 `DEEPSEEK_API_KEY` 和 `QQBOT_APP_SECRET`；不要提交或在聊天里发送密钥。
+3. 将 `.env.example` 复制为 `.env`，填入 `DEEPSEEK_API_KEY` 和 `QQBOT_APP_SECRET`；真实密钥不进入 Git、镜像或普通日志。
 4. `groupIds` 填 QQ 官方事件中的群 OpenID，不是普通 QQ 群号；空列表表示所有平台允许接收的群。`groupMessages: "mentions"` 是保守的能力声明；确认平台已开放非 @ 群消息后才改为 `"all"`，此配置不会替平台授予权限。
 5. 当前插件使用 WebSocket，由容器向 QQ 官方网关发起连接，不需要 NapCat 或公网回调端口。腾讯旧文档曾提示 WebSocket 下线，新 SDK 仍支持双传输；新机器人是否可用须以后台权限和实际 NAS 联调为准。本轮没有实现 Webhook 服务。
-6. 审批具体部署方案后才构建、启动。SQLite 数据挂载在 `/app/data`，插件目录挂载在 `/app/plugins`，同一数据库只运行一个应用实例。
+6. `main` 每次推送通过全部检查后，Actions 导出 `linux/amd64` 镜像和 SHA-256 校验文件，保存为保留 7 天的 Artifact，不创建 Release 或发布到镜像仓库。镜像标签为 `xiaolang:<完整提交 SHA>`；导入 NAS 后在 `.env` 的 `XIAOLANG_IMAGE` 填写该标签。将 `compose.example.yml` 作为项目的 Compose 配置使用，无需在 NAS 重新构建。
+7. 宿主机 `data/` 挂载在 `/app/data`，`plugins/` 挂载在 `/app/plugins`，配置只读挂载；目录须允许容器用户 UID/GID 1000 读写，同一数据库只运行一个应用实例。容器内存上限 512 MiB，日志最多 3 个 10 MiB 文件，不映射端口。若自行在 Linux 构建镜像，可使用 `docker build -t xiaolang:local .`。
 
 已实现本地文字闭环和模拟适配器验证；Linux 镜像构建和无网络容器验证由 CI 执行；尚未连接真实 QQ／DeepSeek 或部署 NAS。
 

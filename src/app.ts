@@ -4,7 +4,7 @@ import { Loader } from '@cordisjs/plugin-loader';
 import { resolve, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { Config } from './config.js';
-import type { Adapter, IncomingMessage, Log, Model } from './contracts.js';
+import type { Adapter, Configuration, IncomingMessage, Log, Model } from './contracts.js';
 import { emitLog, log, messageLog } from './contracts.js';
 import { chatPlugin } from './chat.js';
 import { inspectMessage } from './messages.js';
@@ -84,6 +84,7 @@ export interface AppOptions {
   report?: (entry: Log) => void;
   writeLog?: (line: string) => void;
   secrets?: string[];
+  configuration?: Configuration;
 }
 
 export async function createApp(config: Config, options: AppOptions) {
@@ -124,6 +125,9 @@ export async function createApp(config: Config, options: AppOptions) {
       secrets: [...(options.secrets ?? []), ...(options.apiKey ? [options.apiKey] : [])] });
     await mount(storePlugin, config);
     await mount(inspectionPlugin, config);
+    if (options.configuration) await mount({ name: 'xiaolang-configuration', apply(context) {
+      context.provide('configuration', options.configuration!);
+    } }, undefined);
     await mount(schedulerPlugin, config);
     await mount(triggerPlugin, config);
     await mount(toolsPlugin, undefined);

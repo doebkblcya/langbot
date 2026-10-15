@@ -8,17 +8,20 @@
       <button class="nav active" data-view="overview" aria-current="page"><span>◈</span>运行概览</button>
       <button class="nav" data-view="chats"><span>▤</span>最近聊天</button>
       <button class="nav" data-view="logs"><span>≋</span>过程日志</button>
+      <button class="nav" data-view="model-settings"><span>◉</span>回复模型</button>
+      <button class="nav" data-view="qq-settings"><span>↔</span>QQ 接入</button>
       <button class="nav" data-view="plugins"><span>⊞</span>插件列表</button>
     </nav>
-    <div class="sidebar-bottom"><span class="dot"></span> 私有访问 · 只读面板<small>通过 SSH 隧道连接</small></div>
+    <div class="sidebar-bottom"><span class="dot"></span> 私有访问 · 控制台<small>通过 SSH 隧道连接</small></div>
   </aside>
   <main>
     <header><div><p class="eyebrow">你的聊天伙伴</p><h1 id="page-title">运行概览</h1><p id="page-description">看看小狼现在怎么样。</p></div><span id="connection" class="badge neutral">正在连接面板</span></header>
     <div id="notice" class="notice" role="status" hidden></div>
+    <div id="settings-banner" class="settings-banner" hidden><span id="settings-banner-text">配置已保存，应用后生效。</span><button id="apply-settings" class="primary" type="button">应用配置并重启</button></div>
     <section id="overview" class="view">
       <div class="cards">
-        <article class="card"><span>QQ 连接</span><strong id="qq-state">—</strong><small id="platform">等待状态</small></article>
-        <article class="card"><span>回复模型</span><strong id="model">—</strong><small id="chat-state">等待状态</small></article>
+        <article class="card"><span>QQ 连接</span><strong id="qq-state">—</strong><small id="platform">等待状态</small><button class="link card-link" data-view="qq-settings">配置连接 →</button></article>
+        <article class="card"><span>回复模型</span><strong id="model">—</strong><small id="chat-state">等待状态</small><button class="link card-link" data-view="model-settings">配置模型 →</button></article>
         <article class="card"><span>正在处理 / 等待</span><strong id="pending">—</strong><small id="completed">已完成 — 轮</small></article>
         <article class="card"><span>本次运行</span><strong id="uptime">—</strong><small id="memory">内存 —</small></article>
       </div>
@@ -41,6 +44,40 @@
     </section>
     <section id="plugins" class="view" hidden>
       <article class="panel"><div class="panel-title"><div><h2>插件列表</h2><p class="muted">当前为只读查看；启停和配置编辑后续加入。</p></div><span id="plugins-summary" class="badge neutral">—</span></div><div class="table-wrap"><table><thead><tr><th>插件</th><th>模块</th><th>状态</th></tr></thead><tbody id="plugin-rows"></tbody></table></div><p id="plugin-empty" class="empty" hidden>未配置外部插件</p></article>
+    </section>
+    <section id="model-settings" class="view" hidden>
+      <form id="model-form" class="panel settings-form">
+        <div class="panel-title"><div><h2>DeepSeek 模型</h2><p class="muted">调整小狼使用的模型和生成参数。保存后应用，下一次连接使用新配置。</p></div><span id="model-active" class="badge neutral">—</span></div>
+        <div class="form-grid">
+          <label class="field">API 地址<input name="baseUrl" type="url" required placeholder="https://api.deepseek.com"><small>OpenAI 格式地址，程序自动追加 /chat/completions。</small></label>
+          <label class="field">模型标识<input name="name" list="model-names" required maxlength="200"><datalist id="model-names"><option value="deepseek-flash"><option value="deepseek-v4-pro"></datalist><small>Flash 当前对应 DeepSeek V4.1 Flash。</small></label>
+          <label class="field full">API Key<input name="secret" type="password" autocomplete="new-password" maxlength="4096" placeholder="留空保留已有密钥"><small id="model-secret-state">正在读取密钥状态</small></label>
+          <label class="field">思考模式<select name="thinking"><option value="false">关闭 · 直接回复</option><option value="true">开启 · 先思考再回复</option></select><small>思考可能增加耗时，输出上限包含思考内容。</small></label>
+          <label class="field">思考强度<select name="reasoningEffort"><option value="">使用官方默认值</option><option value="low">低 · low</option><option value="high">高 · high</option><option value="max">最高 · max</option></select><small>仅开启思考时生效。</small></label>
+          <label class="field">采样温度<input name="temperature" type="number" min="0" max="2" step="0.05" placeholder="官方默认 1"><small>0–2，仅关闭思考时生效；越高，表达越多样。</small></label>
+          <label class="field">Top P<input name="topP" type="number" min="0.95" max="1" step="0.01" placeholder="官方默认 1"><small>0.95–1，仅开启思考时生效。</small></label>
+          <label class="field">最大输出 Token<input name="maxOutputTokens" type="number" required min="1" max="393216" step="1"><small>API 允许 1–393216；QQ 回复仍受平台分段限制。</small></label>
+          <label class="field">请求超时（秒）<input name="timeoutSeconds" type="number" required min="1" max="86400" step="1"><small id="model-budget-note">仍受主链路单轮总超时约束。</small></label>
+          <label class="field">失败重试次数<input name="retries" type="number" required min="0" max="3" step="1"><small>仅对网络、超时、限流等可重试错误生效。</small></label>
+          <label class="field full">停止词（可选）<textarea name="stop" rows="3" placeholder="每行一个，最多 16 个"></textarea><small>命中后停止生成；留空使用默认结束方式。</small></label>
+        </div>
+        <div class="form-footer"><p id="model-settings-message" role="status" class="muted">密钥不会回显；留空保留原值。</p><div class="form-actions"><button class="secondary" type="button" data-reload-settings="model">重新读取</button><button class="primary" type="submit">保存模型配置</button></div></div>
+        <p class="muted docs-link">参数依据 <a href="https://api-docs.deepseek.com/api/create-chat-completion/" target="_blank" rel="noreferrer">DeepSeek 官方文档 ↗</a>；已弃用的频率／存在惩罚不提供设置。</p>
+      </form>
+    </section>
+    <section id="qq-settings" class="view" hidden>
+      <form id="qq-form" class="panel settings-form">
+        <div class="panel-title"><div><h2>QQ 官方机器人</h2><p class="muted">使用 WebSocket 主动连接 QQ；修改后应用配置，小狼会短暂重连。</p></div><span id="qq-active" class="badge neutral">—</span></div>
+        <div class="form-grid">
+          <label class="field">AppID<input name="appId" type="text" inputmode="numeric" pattern="[0-9]{1,32}" required><small>QQ 开放平台中对应机器人的 AppID。</small></label>
+          <label class="field">接入环境<select name="environment"><option value="production">正式环境 · 当前项目使用</option><option value="sandbox">沙箱环境 · 仅后台配置的测试范围</option></select><small>切换环境后历史分开保存，不自动合并。</small></label>
+          <label class="field full">AppSecret<input name="secret" type="password" autocomplete="new-password" maxlength="4096" placeholder="留空保留已有密钥"><small id="qq-secret-state">正在读取密钥状态</small></label>
+          <label class="field">群消息接收能力<select name="groupMessages"><option value="all">包含非 @ 群消息</option><option value="mentions">仅确认 @ 群消息</option></select><small>用于能力声明；实际权限由 QQ 平台决定，不会因此回复所有消息。</small></label>
+          <label class="field">连接超时（秒）<input name="connectTimeoutSeconds" type="number" required min="1" max="120" step="1"><small>首次连接等待时间，后续重连由官方 SDK 管理。</small></label>
+          <label class="field full">允许接收的群 OpenID（可选）<textarea name="groupIds" rows="4" placeholder="每行一个；留空允许所有平台推送的群"></textarea><small>填写日志里的群 OpenID，不是普通 QQ 群号。这里只配置接收范围，触发规则保持原样。</small></label>
+        </div>
+        <div class="form-footer"><p id="qq-settings-message" role="status" class="muted">AppSecret 不会回显；留空保留原值。</p><div class="form-actions"><button class="secondary" type="button" data-reload-settings="qq">重新读取</button><button class="primary" type="submit">保存 QQ 配置</button></div></div>
+      </form>
     </section>
     <footer>小狼控制台 <span>最近同步：<time id="synced">—</time> · 时间为北京时间</span></footer>
   </main>

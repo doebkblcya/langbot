@@ -5,9 +5,9 @@
       "appId": "123456789",
       "secretEnv": "QQBOT_APP_SECRET",
       "transport": "websocket",
-      "groupMessages": "mentions",
+      "groupMessages": "all",
       "connectTimeoutMs": 30000,
-      "environment": "sandbox"
+      "environment": "production"
     }
   },
   "database": "data/xiaolang.sqlite",

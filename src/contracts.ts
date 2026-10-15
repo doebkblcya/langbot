@@ -120,6 +120,12 @@ export interface Inspection {
   logs(after?: number): { items: LogItem[]; cursor: number; reset: boolean };
 }
 
+export interface Configuration {
+  view(): Promise<Record<string, unknown>>;
+  save(section: 'model' | 'qq', input: unknown): Promise<Record<string, unknown>>;
+  apply(revision: string): Promise<void>;
+}
+
 declare module 'cordis' {
   interface Context {
     store: Store;
@@ -134,6 +140,7 @@ declare module 'cordis' {
     logOutput: { write(entry: Log): void };
     historyReader: HistoryReader;
     inspection: Inspection;
+    configuration: Configuration;
   }
   interface Events {
     'xiaolang/message'(message: Message): void;

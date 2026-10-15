@@ -25,7 +25,12 @@ export class DeepSeekModel implements Model {
         method: 'POST', redirect: 'error', signal: combined,
         headers: { Authorization: `Bearer ${this.apiKey}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ model: this.config.name, messages, stream: false, max_tokens: this.config.maxOutputTokens,
-          thinking: { type: this.config.thinking ? 'enabled' : 'disabled' }, ...(tools.length ? { tools } : {}) }),
+          thinking: { type: this.config.thinking ? 'enabled' : 'disabled' },
+          ...(this.config.thinking ? {
+            ...(this.config.reasoningEffort ? { reasoning_effort: this.config.reasoningEffort } : {}),
+            ...(this.config.topP !== undefined ? { top_p: this.config.topP } : {}),
+          } : this.config.temperature !== undefined ? { temperature: this.config.temperature } : {}),
+          ...(this.config.stop?.length ? { stop: this.config.stop } : {}), ...(tools.length ? { tools } : {}) }),
       });
     } catch {
       check(signal);

@@ -24,7 +24,7 @@
 - DeepSeek 文字调用、工具循环、参数校验、取消和预算；提供查询时间的示例工具。
 - 超时后保留发送／操作的未知状态，不自动重放；失败草稿不作为已交付回复进入上下文。
 
-主动插话、图片理解、长期 Memory、自学习、表情包、MCP／Skills 尚未实现。管理界面当前为只读面板，支持运行状态、最近聊天、实时过程日志、失败详情及插件状态；插件启停与配置编辑后续加入。当前 QQ 插件只处理官方 C2C 单聊与群聊；频道、媒体解析和引用原文获取暂未支持。非 @ 群消息只有平台实际推送时才能观察或按关键词触发。
+主动插话、图片理解、长期 Memory、自学习、表情包、MCP／Skills 尚未实现。管理界面支持运行状态、聊天、日志与插件状态，并新增回复模型和 QQ 接入配置；插件启停与其他配置编辑尚未提供。当前 QQ 插件只处理官方 C2C 单聊与群聊；频道、媒体解析和引用原文获取暂未支持。非 @ 群消息只有平台实际推送时才能观察或按关键词触发。
 
 ## 开发验证
 
@@ -49,9 +49,9 @@ XIAOLANG_CONFIG=config.example.json node dist/src/main.js --check-config
 用户已批准独立的小狼 Docker 部署和联调。因 NAS 故障，当前改在美国 VPS 验证；NAS 操作暂停。Linux 镜像、无网络容器验证及 VPS 的 QQ 连接／真实模型调用已通过。
 
 1. 当前 VPS 目录为 `/home/doebk/xiaolang`，Compose 配置为 `compose.yml`，项目及容器名为 `xiaolang`。NAS 此前仅创建 `/vol1/1000/sys/docker/xiaolang` 目录并上传镜像，导入未确认、未启动容器；现有 AstrBot／NapCat 不改动。
-2. 将 `config.example.json` 复制为 `config.local.json`，填写 `adapter.config.appId`。仓库示例目前仍默认 `environment: "sandbox"`；**当前项目实际使用 `"production"`，新配置须显式修改**。沙箱按后台配置测试成员和群，两种环境的历史命名空间隔离。
+2. 将 `config.example.json` 复制为 `config.local.json`，填写 `adapter.config.appId`。仓库示例与当前项目均使用 `environment: "production"`。沙箱按后台配置测试成员和群，两种环境的历史命名空间隔离。
 3. 将 `.env.example` 复制为 `.env`，填入 `DEEPSEEK_API_KEY` 和 `QQBOT_APP_SECRET`；真实密钥不进入 Git、镜像或普通日志。
-4. `groupIds` 填 QQ 官方事件中的群 OpenID，不是普通 QQ 群号；空列表表示所有平台允许接收的群。`groupMessages` 是能力声明，不会替平台授予权限。当前用户已反馈非 @ 群消息可收到，但 VPS 仍为 `"mentions"`，旧启动提示尚待同步；本轮仅整理文档。
+4. `groupIds` 填 QQ 官方事件中的群 OpenID，不是普通 QQ 群号；空列表表示所有平台允许接收的群。`groupMessages` 是能力声明，不会替平台授予权限。用户已反馈非 @ 群消息可收到，示例使用 `"all"`；现有实例可以在 QQ 接入页修改此声明。
 5. 当前插件使用 WebSocket，由容器向 QQ 官方网关发起连接，不需要 NapCat 或公网回调端口。当前应用已在 VPS 正式环境成功鉴权并就绪；具体事件权限按实际收包确认。没有实现 Webhook 服务。
 6. `main` 每次推送通过全部检查后，Actions 导出 `linux/amd64` 镜像和 SHA-256 校验文件，保存为保留 7 天的 Artifact，不创建 Release 或发布到镜像仓库。镜像标签为 `xiaolang:<完整提交 SHA>`；导入目标 Docker 后在 `.env` 的 `XIAOLANG_IMAGE` 填写该标签。将 `compose.example.yml` 作为项目的 Compose 配置使用，无需在目标服务器重新构建。
 7. 宿主机 `data/` 挂载在 `/app/data`，`plugins/` 挂载在 `/app/plugins`，配置只读挂载；目录须允许容器用户 UID/GID 1000 读写，同一数据库只运行一个应用实例。容器内存上限 512 MiB，日志最多 3 个 10 MiB 文件。只读面板映射为 `127.0.0.1:18080:18080`，QQ 接入没有入站端口。若自行在 Linux 构建镜像，可使用 `docker build -t xiaolang:local .`。
@@ -60,7 +60,7 @@ XIAOLANG_CONFIG=config.example.json node dist/src/main.js --check-config
 
 临时人设、FIFO 排队、上下文字符预算、模型非思考模式、重试次数和超时等是第一版的可改默认值，不视为用户逐项确认。没有开启主动插话策略。
 
-## 私有后台面板
+## 私有后台面板与配置
 
 页面和 Node.js 内置 HTTP 服务位于外挂的 `examples/plugins/panel/`。复制整个目录到运行目录的 `plugins/panel/`，在 `plugins.entries` 添加：
 
@@ -74,9 +74,15 @@ XIAOLANG_CONFIG=config.example.json node dist/src/main.js --check-config
 ssh -N -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 -L 127.0.0.1:18080:127.0.0.1:18080 RacknerdUS
 ```
 
-后台目前只读，通过 SSH 登录控制访问；HTTP 同时限制本机 Host、同源请求和 GET 方法。页面全部使用本地静态资源，无前端框架或第三方 CDN。每 2 秒刷新运行状态与日志；聊天按轮次分页，支持异常筛选、分段回执和关联过程日志。未触发的普通消息可以在过程日志中查看，不进入聊天轮次列表。面板不接收模型密钥、不提供任意 SQL、命令执行或配置写入接口。
+后台通过 SSH 登录控制访问；HTTP 限制本机 Host 与同源请求，写操作还检查页面令牌和 JSON 请求体。除模型和 QQ 配置外，其余页面仍只读。页面全部使用本地静态资源，无前端框架或第三方 CDN。每 2 秒刷新运行状态与日志；聊天按轮次分页，支持异常筛选、分段回执和关联过程日志。未触发的普通消息可以在过程日志中查看，不进入聊天轮次列表。密钥可以替换但不回显，留空保留原值；不提供任意 SQL 或命令执行接口。
 
 面板依赖主链路的 `inspection` 只读服务；不直接操作 SQLite。聊天来自持久化记录，日志仅缓存本次启动的最近 500 条。重启后页面会自动重连，日志缓存重新开始。改变页面或 HTTP 展示逻辑后更新外挂文件并重启即可；改变主链路查询能力才需要更新镜像。Mac 的离线测试不会启动 HTTP 监听；实际 HTTP 验证在 Linux 容器与 VPS 执行。
+
+模型页支持 API 地址、模型、API Key、思考开关／强度、温度、Top P、输出 Token、请求超时、重试和停止词；QQ 页支持 AppID、AppSecret、正式／沙箱环境、群接收能力声明、连接超时和群 OpenID 范围，连接方式固定 WebSocket。参数范围按 [DeepSeek 官方文档](https://api-docs.deepseek.com/api/create-chat-completion/) 核对：温度仅非思考模式生效，Top P 与思考强度仅思考模式生效；已弃用的频率／存在惩罚不暴露。
+
+修改分为“保存”和“应用配置并重启”。有排队或处理中的轮次时不允许应用；应用后页面自动重连。QQ 新配置导致启动失败时自动恢复上一份配置；模型凭证是否可调用仍需真实请求确认。
+
+后台管理的覆盖配置与密钥统一保存到数据库同目录的 `data/settings.json`（权限 `0600`），包含当前有效值与待应用值；启动时覆盖基础 `config.local.json` 的模型／QQ 设置，其余配置不变。该文件随现有 `data/` 挂载持久化，不写回只读挂载文件或 `.env`。不要将它加入 Git 或镜像；手动改基础文件后，这两个区域仍优先使用后台保存值。
 
 ## 过程日志
 

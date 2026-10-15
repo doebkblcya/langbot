@@ -10,13 +10,15 @@ const stages = { application_ready: '小狼已就绪', application_stopping: '�
   tool_started: '调用工具', tool_completed: '工具完成', tool_failed: '工具失败', tool_unknown: '工具结果未知',
   send_started: '发送回复', send_confirmed: 'QQ 已确认发送', send_failed: '发送失败', send_unknown: '发送结果未知', turn_completed: '本轮完成' };
 const reasons = { private: '私聊默认回复', mention: '@机器人', keyword: '命中触发词', no_trigger: '未触发回复', duplicate: '重复消息', own_message: '机器人自身消息', group_not_allowed: '群不在白名单', chat_disabled: '聊天已停用', invalid_message: '格式无效', account_mismatch: '账号不匹配' };
-const descriptions = { overview: ['运行概览', '看看小狼现在怎么样。'], chats: ['最近聊天', '收到的消息、生成的回复，以及每一轮的处理结果。'], logs: ['过程日志', '从收到消息到发送回复，跟着每一步看。'], plugins: ['插件列表', '查看当前的小狼由哪些插件组成。'], 'model-settings': ['回复模型', '配置模型连接与生成方式。'], 'qq-settings': ['QQ 接入', '配置小狼连接的机器人与消息范围。'], 'trigger-settings': ['触发规则', '决定小狼什么时候回复。'] };
+const descriptions = { overview: ['运行概览', '看看小狼现在怎么样。'], chats: ['最近聊天', '收到的消息、生成的回复，以及每一轮的处理结果。'], logs: ['过程日志', '从收到消息到发送回复，跟着每一步看。'], plugins: ['插件列表', '查看当前的小狼由哪些插件组成。'], 'model-settings': ['回复模型', '配置模型连接与生成方式。'], 'qq-settings': ['QQ 接入', '配置小狼连接的机器人与消息范围。'] };
 const dateFormat = new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Shanghai', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false });
 const timeFormat = new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Shanghai', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
 let logs = [], cursor = 0, before, next = null, busy = false, turnRequest = 0, selected, runStarted;
 let settings, settingsLoading = false, applying = false;
 const dirtyForms = new Set();
 let pluginDetails, pluginDirty = false;
+const triggerForm = $('trigger-form');
+function parkTriggerForm() { $('plugin-config-forms').append(triggerForm); }
 function element(tag, className, text) { const node = document.createElement(tag); if (className) node.className = className; if (text !== undefined) node.textContent = text; return node; }
 function time(value, full = false) { const date = new Date(value); return Number.isFinite(date.getTime()) ? (full ? dateFormat : timeFormat).format(date) : '—'; }
 function tone(state) { return ['completed', 'connected', 'active', 'sent', 'succeeded', 'ready'].includes(state) ? 'good' : ['failed', 'error', 'unknown'].includes(state) ? 'bad' : ['queued', 'running', 'sending', 'pending', 'starting'].includes(state) ? 'waiting' : 'neutral'; }
@@ -259,7 +261,7 @@ for (const section of ['model', 'qq', 'trigger']) {
     try {
       const result = await settingsRequest(`/api/settings/${section}`, { revision: settings.revision, value, ...(section === 'trigger' ? {} : { secret: control('secret') }) });
       dirtyForms.delete(section); fillSettings(result, [section]);
-      formMessage(section, result.pendingRestart ? '已保存。点击上方“应用配置并重启”后生效。' : '配置与运行中的设置一致。', 'success');
+      formMessage(section, result.pendingRestart ? (section === 'trigger' ? '已保存。关闭插件详情后，点击“应用配置并重启”生效。' : '已保存。点击上方“应用配置并重启”后生效。') : '配置与运行中的设置一致。', 'success');
     } catch (error) { formMessage(section, error.message, 'error'); }
     finally { button.disabled = false; }
   });
@@ -281,6 +283,7 @@ $('apply-settings').addEventListener('click', async () => {
 
 
 async function openPlugin(id) {
+  parkTriggerForm();
   pluginDetails = undefined; pluginDirty = false;
   $('plugin-title').textContent = '正在读取…'; $('plugin-detail-body').replaceChildren();
   if (!$('plugin-detail').open) $('plugin-detail').showModal();
@@ -288,13 +291,14 @@ async function openPlugin(id) {
   catch (error) { $('plugin-detail-body').append(element('p', 'error-box', error.message)); }
 }
 function renderPlugin(detail) {
+  parkTriggerForm();
   pluginDetails = detail; pluginDirty = false;
   $('plugin-title').textContent = detail.title;
   const body = $('plugin-detail-body'), meta = element('div', 'detail-meta');
   meta.append(badge(detail.state), element('span', '', detail.kind === 'builtin' ? '内置 · 镜像内' : '外挂 · 挂载加载'));
   body.replaceChildren(meta, element('p', 'mono', `${detail.id} · ${detail.module}`),
     detailSection('依赖服务', detail.dependencies.join('、') || '无'), detailSection('提供服务', detail.provides.join('、') || '无'));
-  if (detail.settingsPage) {
+  if (detail.settingsPage && detail.settingsPage !== 'trigger-settings') {
     const button = element('button', 'secondary detail-log-button', '打开插件配置');
     button.type = 'button'; button.addEventListener('click', () => { $('plugin-detail').close(); showView(detail.settingsPage); }); body.append(button);
   }
@@ -355,9 +359,10 @@ function renderPlugin(detail) {
     });
   }
   body.append(form);
+  if (detail.settingsPage === 'trigger-settings') { body.append(triggerForm); loadSettings(['trigger']); }
 }
 $('close-plugin').addEventListener('click', () => $('plugin-detail').close());
-$('plugin-detail').addEventListener('close', () => { pluginDetails = undefined; pluginDirty = false; });
+$('plugin-detail').addEventListener('close', () => { parkTriggerForm(); pluginDetails = undefined; pluginDirty = false; });
 
 poll();
 loadSettings();

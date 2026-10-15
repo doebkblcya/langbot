@@ -10,7 +10,6 @@
       <button class="nav" data-view="logs"><span>≋</span>过程日志</button>
       <button class="nav" data-view="model-settings"><span>◉</span>回复模型</button>
       <button class="nav" data-view="qq-settings"><span>↔</span>QQ 接入</button>
-      <button class="nav" data-view="trigger-settings"><span>⌁</span>触发规则</button>
       <button class="nav" data-view="plugins"><span>⊞</span>插件列表</button>
     </nav>
     <div class="sidebar-bottom"><span class="dot"></span> 私有访问 · 控制台<small>通过 SSH 隧道连接</small></div>
@@ -80,9 +79,9 @@
         <div class="form-footer"><p id="qq-settings-message" role="status" class="muted">AppSecret 不会回显；留空保留原值。</p><div class="form-actions"><button class="secondary" type="button" data-reload-settings="qq">重新读取</button><button class="primary" type="submit">保存 QQ 配置</button></div></div>
       </form>
     </section>
-    <section id="trigger-settings" class="view" hidden>
+    <div id="plugin-config-forms" hidden>
       <form id="trigger-form" class="panel settings-form">
-        <div class="panel-title"><div><h2>消息触发插件</h2><p class="muted">只决定哪些消息进入回复链路；不直接调用模型或发送消息。</p></div><span id="trigger-provider" class="badge neutral">内置默认插件</span></div>
+        <div class="panel-title"><div><h3>触发规则</h3><p class="muted">只决定哪些消息进入回复链路；不直接调用模型或发送消息。</p></div><span id="trigger-provider" class="badge neutral">内置默认插件</span></div>
         <div class="trigger-switches">
           <label class="switch-line"><span><strong>私聊默认回复</strong><small>开启后，私聊普通消息也会触发回复。</small></span><input name="privateReply" type="checkbox"></label>
           <label class="switch-line"><span><strong>群聊 @ 触发</strong><small>群内 @ 小狼时回复，@ 全体不计入。</small></span><input name="groupMention" type="checkbox"></label>
@@ -92,7 +91,7 @@
         <p class="muted">未触发的消息仍可记录与观察。主动回复尚未实现，后续以独立开关接入同一调度链路。</p>
         <div class="form-footer"><p id="trigger-settings-message" role="status" class="muted">保存后应用配置生效。</p><div class="form-actions"><button class="secondary" type="button" data-reload-settings="trigger">重新读取</button><button class="primary" type="submit">保存触发规则</button></div></div>
       </form>
-    </section>
+    </div>
     <footer>小狼控制台 <span>最近同步：<time id="synced">—</time> · 时间为北京时间</span></footer>
   </main>
   <dialog id="detail"><div class="dialog-head"><div><p class="eyebrow">对话详情</p><h2 id="detail-title">处理记录</h2></div><button id="close-detail" class="secondary" aria-label="关闭详情">关闭</button></div><div id="detail-body"></div></dialog>

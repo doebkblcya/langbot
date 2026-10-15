@@ -1,8 +1,10 @@
 # Koishi 与 Cordis 底座调研
 
+> 历史调研归档：以下选型、版本、权限与部署状态只代表当时的记录，不作为当前实施计划。当前决定见 [需求记录](../需求记录.md)，实际完成情况见 [实现进度](../实现进度.md)。
+
 日期：2026-10-13。范围：官方文档、上游源码与 npm 发布元数据。未安装依赖、构建或运行机器人，未在 NAS 部署；以下结论为静态评估。
 
-状态更新（2026-10-14）：用户已选择 TypeScript＋Cordis 4，自行编写小狼主链路，现有项目作为参考。本文的 Koishi＋ChatLuna 组装建议及版本表保留为历史调查，不代表当前采用。最新功能设计、路线问题和待讨论事项见 [主链路功能与执行流程](主链路功能与执行流程.md)。
+状态更新（2026-10-14）：用户已选择 TypeScript＋Cordis 4，自行编写小狼主链路，现有项目作为参考。本文的 Koishi＋ChatLuna 组装建议及版本表保留为历史调查，不代表当前采用。最新功能设计、路线问题和待讨论事项见 [主链路功能与执行流程](../主链路.md)。
 
 ## 1. 当时的结论与决策状态（历史记录）
 
@@ -139,3 +141,43 @@ npm 元数据直接从官方 registry 读取 `dist-tags`、依赖、`gitHead` �
 - [S14 Koishi Docker 文档](https://koishi.chat/zh-CN/manual/starter/docker)
 
 本轮仅下载临时参考源码、读取资料和更新 Markdown；未引入项目依赖、搭建代码骨架、运行上游测试、连接 QQ 或进行 NAS 写操作。
+
+## 补录：自写主链路路线评估（2026-10-14）
+
+以下从原主链路文档移入，保留当时的可行性判断、版本与来源，不代表当前实现状态。
+
+## 2. 路线调查：可行，但要保留这些边界
+
+结论：没有发现阻止这条路线的架构性问题。Cordis 4 适合承载小型插件化原型；是否稳定、轻量以及具体开发时间，需要后续原型和 NAS 联调验证，当前没有运行证据。
+
+| 核对结果 | 对小狼的影响 | 建议处理 |
+| --- | --- | --- |
+| npm `cordis` latest 为 `4.0.0-rc.10`，核心为 ESM；对应 Loader 源码为 `1.0.0-rc.7`，仍带 RC 标记。[S1] | 可以作为候选，但不能当作接口已永久稳定，也不能只凭“快速原型”推断完整交付成本。 | 后续锁定框架、Loader 和 Node 版本，先验证最小装配；本文不安装或锁定依赖。 |
+| 本次核对的 Koishi 4.18.11 核心依赖 Cordis 3。[S2] | OneBot、数据库、控制台、ChatLuna 等 Koishi 插件不能假定直接装进 Cordis 4。 | 优先参考协议和职责；要复用某个库，单独检查其是否依赖 Koishi 服务。 |
+| Harness 使用改名发布的 `@deepseek-ai/cordis`，基于 Cordis 4 RC 源码并有本地修改。[S3] | 使用同一架构思想不等于共享同一运行时或可直接互装插件。 | 默认研究上游 Cordis 4；不直接引入 Harness 全套，也不默认维护其框架补丁。 |
+| Cordis 提供依赖和资源清理机制，Harness 将模型、会话、工具和循环分别组织为插件。[S3][S4] | 能减少框架建设，但排队、发送结果、工具副作用和数据一致性仍由小狼定义。 | 下面将这些行为列为主链路职责；插件化与热更新分别验收。 |
+| OneBot 11 WS 使用 `echo` 关联请求与响应，发送 API 返回消息 ID。[S5][S6] | `echo` 是关联标识，标准没有在这里提供发送去重承诺。断线可能造成“已执行但没收到回执”。 | 明确发送的成功、失败、结果未知；结果未知时不盲目重发。 |
+| DeepSeek 官方将 V4.1 Flash 标识为 `deepseek-flash`，声明支持视觉与工具调用；思考模式的工具续接还有额外字段要求。[S7] | “OpenAI 兼容”不等于只传文本即可。协议字段若丢失，工具续接可能失败。 | 由模型适配器保留续接信息；文字、工具、图片分别联调。思考模式默认值另定。 |
+| 现有项目的大量实现依赖自身的消息、配置、数据库和生命周期对象。 | 参考实现能降低探索成本，但不是换一种语言逐行翻译后就天然兼容。 | 保留原理和必要算法，按小狼的接口实现；实际复制文件或代码时记录来源及许可证。 |
+
+成本判断：文字原型的范围可控；完整基础链路的主要工作在会话并发、工具循环、持久化与发送一致性。管理界面、长期 Memory、自学习和表情包属于后续模块，不能把它们的成本计入“文字原型已跑通”后就视为完成。
+
+
+## 10. 调研来源、基线与本轮操作
+
+2026-10-14 读取官方文档、npm 元数据及参考源码。npm 查询候选：`cordis@4.0.0-rc.10`，gitHead `f8ea3cd50f1a5724e8e715995bcde131c9c12b2c`；`@koishijs/core@4.18.11`，gitHead `506be1ef16d9c0c0f04069fb4b2f0a403cc19833`。这不是小狼依赖锁定。
+
+- [S1 Cordis npm 元数据](https://registry.npmjs.org/cordis/latest)、[核心源码 manifest](https://github.com/cordiverse/cordis/blob/main/packages/core/package.json)、[Loader manifest](https://github.com/cordiverse/cordis/blob/main/packages/loader/package.json)。
+- [S2 Koishi 核心依赖基线](https://github.com/koishijs/koishi/blob/506be1ef16d9c0c0f04069fb4b2f0a403cc19833/packages/core/package.json)。
+- [S3 Harness 架构](https://deepseek-harness.github.io/deepseek-harness/en/reference/)、[vendor 版本与本地修改](https://github.com/deepseek-ai/deepseek-harness/blob/master/vendor/README.md)。
+- [S4 Cordis 生命周期实现](https://github.com/cordiverse/cordis/blob/main/packages/core/src/fiber.ts)、[Koishi 可逆插件设计（机制参考，非 Cordis 4 API 契约）](https://koishi.chat/zh-CN/cookbook/design/disposable)。
+- [S5 OneBot 11 正向 WebSocket](https://github.com/botuniverse/onebot-11/blob/master/communication/ws.md)。
+- [S6 OneBot 11 公开 API](https://github.com/botuniverse/onebot-11/blob/master/api/public.md)。
+- [S7 DeepSeek 模型能力](https://api-docs.deepseek.com/quick_start/pricing/)、[工具调用](https://api-docs.deepseek.com/guides/tool_calls/)、[思考模式与工具续接](https://api-docs.deepseek.com/guides/thinking_mode/)。
+- [S8 OneBot 数组消息格式](https://github.com/botuniverse/onebot-11/blob/master/message/array.md)。
+- [S9 NapCat 信息接口概览及固定源码来源](NapCat信息接口概览.md)。
+- 参考实现：[AstrBot v4.28.2 工具循环](https://github.com/AstrBotDevs/AstrBot/blob/v4.28.2/astrbot/core/agent/runners/tool_loop_agent_runner.py)、[OneBot 适配器参考基线](https://github.com/koishijs/koishi-plugin-adapter-onebot/blob/058d8488aeef069751b0a84e066d48d1e2298225/src/ws.ts)。只借鉴职责、请求关联和异常处理，不视为可脱离原宿主直接使用。
+
+本节记录设计调研阶段：当时只做只读调查并修改本地 Markdown，未编写代码、安装依赖、运行机器人或操作 NAS。随后用户授权提交、推送并开始本地实现，具体状态见 [实现进度](../实现进度.md)。
+
+当前 QQ 接入来源：[腾讯官方 Node.js SDK](https://github.com/tencent-connect/qqbot-nodejs)、[事件订阅文档](https://github.com/tencent-connect/bot-docs/blob/main/docs/develop/api-v2/dev-prepare/interface-framework/event-emit.md)。

@@ -10,6 +10,7 @@ config.plugins = {
   entries: [
     { id: 'hello', module: './hello/index.mjs', config: { greeting: '容器测试通过' } },
     { id: 'console-logger', module: './console-logger/index.mjs', config: { format: 'text' } },
+    { id: 'panel', module: './panel/index.mjs', config: { host: '127.0.0.1', port: 18080 } },
   ],
 };
 let delivered = '';
@@ -43,5 +44,18 @@ try {
   assert.equal(typeof app.ctx.logOutput.write, 'function');
   assert.ok(events.some(entry => entry.code === 'message_received' && entry.preview === '向小狼问好'));
   assert.ok(events.some(entry => entry.code === 'send_confirmed' && entry.receipt === '1'));
+  const status = await fetch('http://127.0.0.1:18080/api/status').then(response => response.json());
+  assert.equal(status.state, 'ready');
+  assert.ok(status.plugins.some(plugin => plugin.id === 'panel' && plugin.state === 'active'));
+  const turns = await fetch('http://127.0.0.1:18080/api/turns').then(response => response.json());
+  assert.equal(turns.items[0].reply, delivered);
+  const detail = await fetch(`http://127.0.0.1:18080/api/turns/${turns.items[0].id}`).then(response => response.json());
+  assert.equal(detail.sends[0].state, 'sent');
+  assert.ok(!('protocol' in detail));
+  const logs = await fetch('http://127.0.0.1:18080/api/logs').then(response => response.json());
+  assert.ok(logs.items.some(item => item.entry.code === 'turn_completed'));
+  assert.equal((await fetch('http://127.0.0.1:18080/api/status', { headers: { Host: 'evil.example' } })).status, 403);
+  assert.equal((await fetch('http://127.0.0.1:18080/api/status', { method: 'POST' })).status, 405);
+  assert.ok((await fetch('http://127.0.0.1:18080/').then(response => response.text())).includes('小狼'));
   console.info('Mounted external plugin: OK');
 } finally { await app.stop(); }

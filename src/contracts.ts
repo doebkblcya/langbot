@@ -95,6 +95,30 @@ export interface Log {
   part?: number; parts?: number; toolCalls?: number; durationMs?: number; waitMs?: number;
   state?: string; errorCode?: string; receipt?: string;
 }
+export interface TurnView {
+  id: string; seq: number; state: string; reason: string; errorCode: string | null;
+  received: number; updated: number; scope: 'private' | 'group'; sender: string; group?: string;
+  input: string; reply: string; inputTruncated: boolean; replyTruncated: boolean;
+}
+export interface TurnDetail extends TurnView {
+  sends: { part: number; text: string; state: string; receipt: string | null }[];
+  tools: { name: string; state: string }[];
+}
+export interface HistoryReader {
+  counts(): Record<string, number>;
+  recent(limit: number, before?: number, failures?: boolean): { items: TurnView[]; next: number | null };
+  detail(id: string): TurnDetail | undefined;
+}
+export interface LogItem { seq: number; entry: Log }
+export interface Inspection {
+  status(): {
+    started: number; uptimeMs: number; state: string; connection: string; lastMessage?: string;
+    model: string; platform?: string; chatEnabled: boolean; memoryBytes: number;
+    counts: Record<string, number>; plugins: { id: string; module: string; state: string }[];
+  };
+  recent: HistoryReader['recent']; detail: HistoryReader['detail'];
+  logs(after?: number): { items: LogItem[]; cursor: number; reset: boolean };
+}
 
 declare module 'cordis' {
   interface Context {
@@ -108,6 +132,8 @@ declare module 'cordis' {
     output: Output;
     chat: Chat;
     logOutput: { write(entry: Log): void };
+    historyReader: HistoryReader;
+    inspection: Inspection;
   }
   interface Events {
     'xiaolang/message'(message: Message): void;

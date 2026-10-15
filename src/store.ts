@@ -2,7 +2,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import type { Message, ModelMessage, SendRecord, Store, ToolCall, Turn, TurnState } from './contracts.js';
+import type { HistoryReader, Message, ModelMessage, SendRecord, Store, ToolCall, Turn, TurnDetail, TurnState, TurnView } from './contracts.js';
 import { render } from './messages.js';
 import { Failure } from './errors.js';
 
@@ -105,4 +105,37 @@ export class SqliteStore implements Store {
   inspectTurn(id: string) { return this.db.prepare('SELECT * FROM turns WHERE id=?').get(id); }
   inspectSends(id: string) { return this.db.prepare('SELECT * FROM sends WHERE turn_id=? ORDER BY part').all(id); }
   inspectTools(id: string) { return this.db.prepare('SELECT * FROM tools WHERE turn_id=?').all(id); }
+  counts(): Record<string, number> {
+    return Object.fromEntries(this.db.prepare('SELECT state,count(*) AS count FROM turns GROUP BY state').all().map(row => [String(row.state), Number(row.count)]));
+  }
+  private view(row: Record<string, unknown>, maximum: number): TurnView {
+    const message = JSON.parse(String(row.payload)) as Message;
+    const delivered = row.delivered ? JSON.parse(String(row.delivered)) as { text: string } : undefined;
+    const input = message.text;
+    const reply = delivered?.text ?? '';
+    const trim = (text: string) => Array.from(text).slice(0, maximum).join('');
+    return { id: String(row.id), seq: Number(row.seq), state: String(row.state), reason: String(row.reason),
+      errorCode: row.code === null ? null : String(row.code), received: message.time, updated: Number(row.updated),
+      scope: message.group ? 'group' : 'private', sender: message.name, group: message.group,
+      input: trim(input), reply: trim(reply), inputTruncated: Array.from(input).length > maximum, replyTruncated: Array.from(reply).length > maximum };
+  }
+  recent(limit = 25, before?: number, failures = false): ReturnType<HistoryReader['recent']> {
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100 || (before !== undefined && (!Number.isSafeInteger(before) || before < 1))) throw new Failure('invalid_history_query');
+    const rows = this.db.prepare(`SELECT t.id,t.state,t.reason,t.code,t.updated,m.seq,m.payload,o.payload AS delivered
+      FROM turns t JOIN messages m ON m.key=t.message_key LEFT JOIN messages o ON o.key='reply:'||t.id
+      WHERE (? IS NULL OR m.seq<?) AND (?=0 OR t.state IN ('failed','unknown','expired','cancelled'))
+      ORDER BY m.seq DESC LIMIT ?`).all(before ?? null, before ?? null, failures ? 1 : 0, limit + 1);
+    const items = rows.slice(0, limit).map(row => this.view(row, 500));
+    return { items, next: rows.length > limit ? items.at(-1)!.seq : null };
+  }
+  detail(id: string): TurnDetail | undefined {
+    const row = this.db.prepare(`SELECT t.id,t.state,t.reason,t.code,t.updated,m.seq,m.payload,o.payload AS delivered
+      FROM turns t JOIN messages m ON m.key=t.message_key LEFT JOIN messages o ON o.key='reply:'||t.id WHERE t.id=?`).get(id);
+    if (!row) return;
+    return { ...this.view(row, 10000),
+      sends: this.db.prepare('SELECT part,text,state,platform_id FROM sends WHERE turn_id=? ORDER BY part').all(id)
+        .map(send => ({ part: Number(send.part) + 1, text: Array.from(String(send.text)).slice(0, 4000).join(''), state: String(send.state), receipt: send.platform_id === null ? null : String(send.platform_id) })),
+      tools: this.db.prepare('SELECT name,state FROM tools WHERE turn_id=? ORDER BY rowid').all(id).map(tool => ({ name: String(tool.name), state: String(tool.state) })),
+    };
+  }
 }

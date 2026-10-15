@@ -9,6 +9,7 @@ import { emitLog, log, messageLog } from './contracts.js';
 import { chatPlugin } from './chat.js';
 import { inspectMessage } from './messages.js';
 import { loggingPlugin } from './logging.js';
+import { inspectionPlugin } from './inspection.js';
 import { SessionQueue } from './scheduler.js';
 import { SqliteStore } from './store.js';
 import { DeepSeekModel } from './model.js';
@@ -23,6 +24,7 @@ export const storePlugin: Plugin.Object<Config> = {
     const store = new SqliteStore(config.database);
     ctx.effect(() => () => store.close());
     ctx.provide('store', store);
+    ctx.provide('historyReader', { counts: () => store.counts(), recent: (limit, before, failures) => store.recent(limit, before, failures), detail: id => store.detail(id) });
   },
 };
 export const schedulerPlugin: Plugin.Object<Config> = {
@@ -121,6 +123,7 @@ export async function createApp(config: Config, options: AppOptions) {
     await mount(loggingPlugin, { settings: config.logging, report: options.report, write: options.writeLog,
       secrets: [...(options.secrets ?? []), ...(options.apiKey ? [options.apiKey] : [])] });
     await mount(storePlugin, config);
+    await mount(inspectionPlugin, config);
     await mount(schedulerPlugin, config);
     await mount(triggerPlugin, config);
     await mount(toolsPlugin, undefined);

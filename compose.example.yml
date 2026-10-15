@@ -8,6 +8,8 @@ services:
     mem_limit: 512m
     stop_grace_period: 30s
     env_file: .env
+    ports:
+      - "127.0.0.1:18080:18080"
     volumes:
       - ./config.local.json:/app/config.local.json:ro
       - ./data:/app/data

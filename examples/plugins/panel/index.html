@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>小狼 · 控制台</title><link rel="stylesheet" href="/style.css"><script src="/app.js" defer></script></head>
+<body>
+  <aside class="sidebar">
+    <a class="brand" href="/"><span class="brand-mark">狼</span><span>小狼<small>XIAOLANG</small></span></a>
+    <nav aria-label="主导航">
+      <button class="nav active" data-view="overview" aria-current="page"><span>◈</span>运行概览</button>
+      <button class="nav" data-view="chats"><span>▤</span>最近聊天</button>
+      <button class="nav" data-view="logs"><span>≋</span>过程日志</button>
+      <button class="nav" data-view="plugins"><span>⊞</span>插件列表</button>
+    </nav>
+    <div class="sidebar-bottom"><span class="dot"></span> 私有访问 · 只读面板<small>通过 SSH 隧道连接</small></div>
+  </aside>
+  <main>
+    <header><div><p class="eyebrow">你的聊天伙伴</p><h1 id="page-title">运行概览</h1><p id="page-description">看看小狼现在怎么样。</p></div><span id="connection" class="badge neutral">正在连接面板</span></header>
+    <div id="notice" class="notice" role="status" hidden></div>
+    <section id="overview" class="view">
+      <div class="cards">
+        <article class="card"><span>QQ 连接</span><strong id="qq-state">—</strong><small id="platform">等待状态</small></article>
+        <article class="card"><span>回复模型</span><strong id="model">—</strong><small id="chat-state">等待状态</small></article>
+        <article class="card"><span>正在处理 / 等待</span><strong id="pending">—</strong><small id="completed">已完成 — 轮</small></article>
+        <article class="card"><span>本次运行</span><strong id="uptime">—</strong><small id="memory">内存 —</small></article>
+      </div>
+      <div class="overview-grid">
+        <article class="panel"><div class="panel-title"><h2>最近动态</h2><button class="link" data-view="logs">查看日志 →</button></div><div id="recent-events" class="recent-events"><p class="empty">等待小狼的第一条动态</p></div></article>
+        <article class="panel"><h2>运行摘要</h2><dl class="summary"><div><dt>应用状态</dt><dd id="app-state">—</dd></div><div><dt>异常轮次</dt><dd id="failures">—</dd></div><div><dt>启用插件</dt><dd id="plugin-count">—</dd></div><div><dt>最近收到消息</dt><dd id="last-message">—</dd></div></dl><p class="muted">这里只查看运行情况。聊天记录会保留，过程日志显示本次启动的最近 500 条。</p></article>
+      </div>
+    </section>
+    <section id="chats" class="view" hidden>
+      <article class="panel"><div class="panel-title"><div><h2>最近聊天</h2><p class="muted">展示已触发处理的对话轮次，点击查看回复、发送状态和失败原因。</p></div><label class="filter"><input id="failures-only" type="checkbox">只看异常</label></div>
+        <div class="table-wrap"><table><thead><tr><th>时间 / 来源</th><th>收到消息</th><th>已确认回复</th><th>处理结果</th></tr></thead><tbody id="turns"></tbody></table></div><p id="chat-empty" class="empty" hidden>还没有符合条件的对话</p>
+        <div class="pagination"><button id="latest" class="secondary">回到最新</button><span id="page-note" class="muted">最近 25 轮</span><button id="older" class="secondary" disabled>查看更早</button></div>
+      </article>
+    </section>
+    <section id="logs" class="view" hidden>
+      <article class="panel"><div class="panel-title"><div><h2>过程日志 <span id="log-count" class="count">0</span></h2><p class="muted">每 2 秒更新 · 正文为短预览 · 重启后清空</p></div><label class="filter"><input id="follow" type="checkbox" checked>跟随最新</label></div>
+        <div class="log-toolbar"><input id="log-filter" type="search" placeholder="按轮次 ID、阶段或内容筛选" aria-label="筛选日志"><button id="clear-filter" class="secondary">清除筛选</button></div>
+        <div id="log-list" class="log-list" aria-label="过程日志"><p class="empty">暂无过程日志</p></div>
+      </article>
+    </section>
+    <section id="plugins" class="view" hidden>
+      <article class="panel"><div class="panel-title"><div><h2>插件列表</h2><p class="muted">当前为只读查看；启停和配置编辑后续加入。</p></div><span id="plugins-summary" class="badge neutral">—</span></div><div class="table-wrap"><table><thead><tr><th>插件</th><th>模块</th><th>状态</th></tr></thead><tbody id="plugin-rows"></tbody></table></div><p id="plugin-empty" class="empty" hidden>未配置外部插件</p></article>
+    </section>
+    <footer>小狼控制台 <span>最近同步：<time id="synced">—</time> · 时间为北京时间</span></footer>
+  </main>
+  <dialog id="detail"><div class="dialog-head"><div><p class="eyebrow">对话详情</p><h2 id="detail-title">处理记录</h2></div><button id="close-detail" class="secondary" aria-label="关闭详情">关闭</button></div><div id="detail-body"></div></dialog>
+</body></html>

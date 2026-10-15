@@ -2,7 +2,7 @@
 
 个人定制、轻量克制、拟人化的 QQ 聊天机器人。使用 **TypeScript＋Cordis 4** 自行编写，通过独立接入插件连接 **QQ 官方机器人**。OneBot／NapCat 接入实现已移除。
 
-目前是文字主链路的第一版实现，尚未在 NAS 接通 QQ 或真实模型，不是九个模块已全部完成。完整设计见 [主链路功能与执行流程](Docs/主链路功能与执行流程.md)，当前边界见 [实现进度](Docs/实现进度.md)。
+目前是文字主链路的第一版实现。已在美国 VPS 的 Docker 中连接 QQ 官方 WebSocket 沙箱，并验证 DeepSeek 真实调用；QQ 人工收发仍待验收，九个模块尚未全部完成。完整设计见 [主链路功能与执行流程](Docs/主链路功能与执行流程.md)，当前边界见 [实现进度](Docs/实现进度.md)。
 
 ## 已实现
 
@@ -33,19 +33,19 @@ npm test
 XIAOLANG_CONFIG=config.example.json node dist/src/main.js --check-config
 ```
 
-## NAS 运行准备
+## Docker 运行
 
-用户已批准在独立的小狼 Docker 范围内部署和联调，无需为该范围内的常规操作逐次确认。Linux 镜像及无网络容器验证已通过；真实 NAS 部署尚未完成。
+用户已批准独立的小狼 Docker 部署和联调。因 NAS 故障，当前改在美国 VPS 验证；NAS 操作暂停。Linux 镜像、无网络容器验证及 VPS 的 QQ 连接／真实模型调用已通过。
 
-1. NAS 目录使用 `/vol1/1000/sys/docker/xiaolang`，Compose 项目及容器名为 `xiaolang`；现有 AstrBot／NapCat 不改动。
+1. 当前 VPS 目录为 `/home/doebk/xiaolang`，Compose 配置为 `compose.yml`，项目及容器名为 `xiaolang`。NAS 此前仅创建 `/vol1/1000/sys/docker/xiaolang` 目录并上传镜像，导入未确认、未启动容器；现有 AstrBot／NapCat 不改动。
 2. 将 `config.example.json` 复制为 `config.local.json`，填写 `adapter.config.appId`。`environment: "sandbox"` 使用官方沙箱地址，按后台配置测试成员和群；实际生产接入另设 `"production"`。两种环境的历史命名空间隔离。
 3. 将 `.env.example` 复制为 `.env`，填入 `DEEPSEEK_API_KEY` 和 `QQBOT_APP_SECRET`；真实密钥不进入 Git、镜像或普通日志。
 4. `groupIds` 填 QQ 官方事件中的群 OpenID，不是普通 QQ 群号；空列表表示所有平台允许接收的群。`groupMessages: "mentions"` 是保守的能力声明；确认平台已开放非 @ 群消息后才改为 `"all"`，此配置不会替平台授予权限。
-5. 当前插件使用 WebSocket，由容器向 QQ 官方网关发起连接，不需要 NapCat 或公网回调端口。腾讯旧文档曾提示 WebSocket 下线，新 SDK 仍支持双传输；新机器人是否可用须以后台权限和实际 NAS 联调为准。本轮没有实现 Webhook 服务。
-6. `main` 每次推送通过全部检查后，Actions 导出 `linux/amd64` 镜像和 SHA-256 校验文件，保存为保留 7 天的 Artifact，不创建 Release 或发布到镜像仓库。镜像标签为 `xiaolang:<完整提交 SHA>`；导入 NAS 后在 `.env` 的 `XIAOLANG_IMAGE` 填写该标签。将 `compose.example.yml` 作为项目的 Compose 配置使用，无需在 NAS 重新构建。
+5. 当前插件使用 WebSocket，由容器向 QQ 官方网关发起连接，不需要 NapCat 或公网回调端口。当前应用已在 VPS 成功鉴权并进入沙箱就绪状态；生产环境和实际消息权限仍须分别验收。没有实现 Webhook 服务。
+6. `main` 每次推送通过全部检查后，Actions 导出 `linux/amd64` 镜像和 SHA-256 校验文件，保存为保留 7 天的 Artifact，不创建 Release 或发布到镜像仓库。镜像标签为 `xiaolang:<完整提交 SHA>`；导入目标 Docker 后在 `.env` 的 `XIAOLANG_IMAGE` 填写该标签。将 `compose.example.yml` 作为项目的 Compose 配置使用，无需在目标服务器重新构建。
 7. 宿主机 `data/` 挂载在 `/app/data`，`plugins/` 挂载在 `/app/plugins`，配置只读挂载；目录须允许容器用户 UID/GID 1000 读写，同一数据库只运行一个应用实例。容器内存上限 512 MiB，日志最多 3 个 10 MiB 文件，不映射端口。若自行在 Linux 构建镜像，可使用 `docker build -t xiaolang:local .`。
 
-已实现本地文字闭环和模拟适配器验证；Linux 镜像构建和无网络容器验证由 CI 执行；尚未连接真实 QQ／DeepSeek 或部署 NAS。
+当前 VPS 运行镜像对应提交 `2d9a005`，已验证 QQ 沙箱连接、一次真实 `deepseek-flash` 回复、容器重启后重新就绪及数据库挂载。QQ 消息收发、非 @ 群事件和真实会话恢复仍待人工联调；NAS 尚未完成部署。
 
 临时人设、FIFO 排队、上下文字符预算、模型非思考模式、重试次数和超时等是第一版的可改默认值，不视为用户逐项确认。没有开启主动插话策略。
 

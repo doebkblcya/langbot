@@ -316,7 +316,7 @@ function renderPlugin(detail) {
     if (definition.enum) {
       input = element('select');
       if (!required) { const option = element('option', '', '默认'); option.value = ''; input.append(option); }
-      for (const item of definition.enum) { const option = element('option', '', String(item)); option.value = String(item); input.append(option); }
+      for (const item of definition.enum) { const option = element('option', '', detail.id === 'xiaolang-output' ? ({ normal: '普通输出', streaming: '流式输出' }[item] ?? String(item)) : String(item)); option.value = String(item); input.append(option); }
     } else if (definition.type === 'array') { input = element('textarea'); input.rows = 3; }
     else { input = element('input'); input.type = definition.writeOnly ? 'password' : definition.type === 'boolean' ? 'checkbox' : ['number', 'integer'].includes(definition.type) ? 'number' : 'text'; }
     input.name = name;

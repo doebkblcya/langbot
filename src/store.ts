@@ -80,6 +80,14 @@ export class SqliteStore implements Store {
       this.db.exec('COMMIT');
     } catch (error) { this.db.exec('ROLLBACK'); throw error; }
   }
+  streamIntent(id: string, part: number, text: string): void {
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      this.db.prepare("INSERT INTO sends(turn_id,part,text,state) VALUES (?,?,?,'sending') ON CONFLICT(turn_id,part) DO UPDATE SET text=excluded.text,state='sending'").run(id, part, text);
+      this.state(id, 'sending');
+      this.db.exec('COMMIT');
+    } catch (error) { this.db.exec('ROLLBACK'); throw error; }
+  }
   sendState(id: string, part: number, state: SendRecord['state'], platformId?: string): void {
     this.db.prepare('UPDATE sends SET state=?,platform_id=? WHERE turn_id=? AND part=?').run(state, platformId ?? null, id, part);
   }

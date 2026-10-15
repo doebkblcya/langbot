@@ -39,14 +39,16 @@ export interface ToolSchema {
   function: { name: string; description: string; parameters: Fields };
 }
 export interface Model {
+  stream?(messages: ModelMessage[], tools: ToolSchema[], signal: AbortSignal, write: (delta: string) => Promise<void>): Promise<ModelMessage>;
   complete(messages: ModelMessage[], tools: ToolSchema[], signal: AbortSignal): Promise<ModelMessage>;
 }
 export interface Adapter {
   platform: string;
   account: string;
-  capabilities: { groupMessages: 'all' | 'mentions'; maxTextChars: number };
+  capabilities: { groupMessages: 'all' | 'mentions'; maxTextChars: number; maxReplyParts?: number; nativeStreaming?: boolean };
   start(receive: (message: IncomingMessage) => void): Promise<void> | void;
   stop(): Promise<void> | void;
+  streamReply?(message: Message, text: string, index: number, done: boolean, streamId: string | undefined, signal: AbortSignal): Promise<{ id: string }>;
   reply(message: Message, text: string, part: number, signal: AbortSignal): Promise<{ id: string }>;
 }
 export type TurnState = 'queued' | 'running' | 'sending' | 'completed' | 'failed' | 'cancelled' | 'unknown' | 'expired';
@@ -59,6 +61,7 @@ export interface Store {
   state(id: string, state: TurnState, code?: string): void;
   draft(id: string, text: string, protocol: ModelMessage[]): void;
   prepareSend(id: string, parts: string[]): void;
+  streamIntent(id: string, part: number, text: string): void;
   sendState(id: string, part: number, state: SendRecord['state'], platformId?: string): void;
   delivered(turn: Turn, text: string, protocol: ModelMessage[], platformIds: string[]): void;
   confirmSend(turn: Turn, part: number, platformId: string, text: string, protocol: ModelMessage[], platformIds: string[]): void;
@@ -84,7 +87,12 @@ export interface Tools {
   schemas(): ToolSchema[];
   execute(call: ToolCall, message: Message, signal: AbortSignal): Promise<unknown>;
 }
+export interface ReplyStream {
+  write(delta: string): Promise<void>;
+  finish(protocol: ModelMessage[]): Promise<void>;
+}
 export interface Output {
+  openStream?(turn: Turn, signal: AbortSignal): ReplyStream;
   send(turn: Turn, text: string, protocol: ModelMessage[], signal: AbortSignal): Promise<void>;
   feedback?(turn: Turn, text: string, signal: AbortSignal): Promise<boolean>;
 }

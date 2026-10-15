@@ -65,7 +65,7 @@ export class QQOfficialAdapter implements Adapter {
     factory: (options: QQBotOptions) => QQClient = options => new QQBot(options)) {
     this.account = config.appId;
     this.platform = config.environment === 'sandbox' ? 'qq-official-sandbox' : 'qq-official';
-    this.capabilities = { groupMessages: config.groupMessages, maxTextChars: 1500 };
+    this.capabilities = { groupMessages: config.groupMessages, maxTextChars: 1500, maxReplyParts: 5, nativeStreaming: true };
     this.client = factory({
       appId: config.appId, appSecret: secret, transport: config.transport, markdownSupport: false,
       baseUrl: config.environment === 'sandbox' ? 'https://sandbox.api.sgroup.qq.com' : 'https://api.sgroup.qq.com',
@@ -113,6 +113,26 @@ export class QQOfficialAdapter implements Adapter {
     await this.running;
     this.running = undefined;
   }
+  async streamReply(message: Message, text: string, index: number, done: boolean, streamId: string | undefined, signal: AbortSignal): Promise<{ id: string }> {
+    check(signal);
+    if (!this.ready) throw new Failure('qq_not_ready');
+    if (message.platform !== this.platform || message.account !== this.account) throw new Failure('adapter_target_mismatch');
+    if (message.group) throw new Failure('qq_stream_private_only');
+    if (Date.now() - message.time > 300_000 || message.time > Date.now() + 60_000) throw new Failure('qq_reply_expired');
+    try {
+      const response = await abortable(this.client.messageApi.sendC2CStreamMessage(this.client.getCredentials(), message.sender, {
+        input_mode: 'replace', input_state: done ? 10 : 1, content_type: 'markdown', content_raw: text,
+        event_id: message.id, msg_id: message.id, msg_seq: 1, index, ...(streamId ? { stream_msg_id: streamId } : {}),
+      }), signal);
+      if (!id(response.id)) throw new Failure('send_invalid_receipt', true);
+      return { id: response.id };
+    } catch (error) {
+      if (error instanceof Failure && error.unknownOutcome) throw error;
+      if (error instanceof ApiError && error.httpStatus >= 400 && error.httpStatus < 500 && ![408, 409].includes(error.httpStatus)) throw new Failure('qq_stream_api_rejected');
+      throw new Failure(signal.aborted ? 'qq_send_cancelled' : 'qq_send_unknown', true);
+    }
+  }
+
   async reply(message: Message, text: string, part: number, signal: AbortSignal): Promise<{ id: string }> {
     check(signal);
     if (!this.ready) throw new Failure('qq_not_ready');

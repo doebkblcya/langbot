@@ -30,7 +30,11 @@ class MockQQ extends EventEmitter {
   start(): Promise<void> { queueMicrotask(() => this.emit('ready')); return this.run.promise; }
   stop(): void { this.stopped++; this.run.resolve(); }
   getCredentials() { return { appId: '123456789', clientSecret: 'fake' }; }
-  messageApi = { sendRaw: async (scope: string, target: string, _credentials: unknown, body: Record<string, unknown>) => {
+  messageApi = { sendC2CStreamMessage: async (_credentials: unknown, target: string, body: Record<string, unknown>) => {
+    this.sent.push({ scope: 'stream', target, body });
+    if (this.failure) throw this.failure;
+    return { id: 'bubble', timestamp: Date.now() };
+  }, sendRaw: async (scope: string, target: string, _credentials: unknown, body: Record<string, unknown>) => {
     this.sent.push({ scope, target, body });
     if (this.sendGate) await this.sendGate;
     if (this.failure) throw this.failure;
@@ -193,4 +197,17 @@ test('QQ disconnect blocks sends until resume; stopping detaches listeners and s
   const pending = new QQOfficialAdapter({ ...qqConfig(), connectTimeoutMs: 5 }, 'fake', undefined, () => silent as unknown as QQClient);
   await assert.rejects(pending.start(() => {}), { code: 'qq_connect_timeout' });
   assert.equal(silent.stopped, 1);
+});
+
+
+test('QQ private native stream uses one sequence and reuses the first bubble ID', async t => {
+  const client = new MockQQ(), qq = adapter(client); await qq.start(() => {}); t.after(() => qq.stop());
+  const input = message(qq);
+  await qq.streamReply(input, 'hello', 0, false, undefined, new AbortController().signal);
+  await qq.streamReply(input, 'hello world', 1, true, 'bubble', new AbortController().signal);
+  assert.deepEqual(client.sent.map(item => item.body), [
+    { input_mode: 'replace', input_state: 1, content_type: 'markdown', content_raw: 'hello', event_id: input.id, msg_id: input.id, msg_seq: 1, index: 0 },
+    { input_mode: 'replace', input_state: 10, content_type: 'markdown', content_raw: 'hello world', event_id: input.id, msg_id: input.id, msg_seq: 1, index: 1, stream_msg_id: 'bubble' },
+  ]);
+  await assert.rejects(qq.streamReply({ ...input, group: 'group' }, 'text', 0, false, undefined, new AbortController().signal), { code: 'qq_stream_private_only' });
 });

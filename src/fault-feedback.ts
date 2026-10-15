@@ -4,6 +4,8 @@ import { code, check } from './errors.js';
 import { log } from './contracts.js';
 
 const reasons: Record<string, string> = {
+  model_stream_interrupted: '模型流式连接中断', streaming_unavailable: '当前模型或发送插件不支持流式输出',
+  model_output_too_long: '模型输出超过安全长度限制', qq_reply_part_limit: '回复超过 QQ 被动回复次数限制',
   model_timeout: '模型接口请求超时', model_network: '连接模型接口失败', model_empty_response: '模型没有返回可发送的回复',
   model_output_truncated: '模型输出达到 Token 上限，回复被截断', model_invalid_response: '模型返回格式不正确',
   model_invalid_json: '模型返回的数据无法解析', model_invalid_tool_calls: '模型返回了无效工具调用',

@@ -43,6 +43,9 @@ async function runTurn(ctx: Context, config: Config, turn: Turn, signal: AbortSi
   const messages = assemble(config.persona, ctx.store.history(turn.message, config.limits.history), turn.message, config.limits.contextChars, size(tools));
   const protocol: ModelMessage[] = [];
   const calls = new Set<string>();
+  const streaming = config.output?.mode === 'streaming';
+  if (streaming && (!ctx.model.stream || !ctx.output.openStream)) throw new Failure('streaming_unavailable');
+  const stream = streaming ? ctx.output.openStream!(turn, signal) : undefined;
   for (let step = 0; step < config.limits.steps; step++) {
     check(signal);
     if (size(messages) + size(tools) > config.limits.contextChars) throw new Failure('context_budget');
@@ -50,7 +53,8 @@ async function runTurn(ctx: Context, config: Config, turn: Turn, signal: AbortSi
     const modelDetails = { model: config.model.name, step: step + 1 };
     log(ctx, 'model_started', turn.id, 'model', modelDetails);
     let response: ModelMessage;
-    try { response = await abortable(ctx.model.complete(structuredClone(messages), tools, signal), signal); }
+    try { response = await abortable(stream ? ctx.model.stream!(structuredClone(messages), tools, signal, delta => stream.write(delta))
+      : ctx.model.complete(structuredClone(messages), tools, signal), signal); }
     catch (error) { log(ctx, 'model_failed', turn.id, 'model', { ...modelDetails, durationMs: elapsed(started), errorCode: code(error) }); throw error; }
     log(ctx, 'model_completed', turn.id, 'model', { ...modelDetails, durationMs: elapsed(started), toolCalls: response.tool_calls?.length ?? 0 });
     check(signal);
@@ -60,11 +64,13 @@ async function runTurn(ctx: Context, config: Config, turn: Turn, signal: AbortSi
     if (!response.tool_calls?.length) {
       if (!response.content?.trim()) throw new Failure('model_empty_response');
       log(ctx, 'reply_generated', turn.id, 'model', { preview: response.content });
-      await ctx.output.send(turn, response.content, protocol, signal);
+      if (stream) await stream.finish(protocol);
+      else await ctx.output.send(turn, response.content, protocol, signal);
       ctx.store.state(turn.id, 'completed');
       log(ctx, 'turn_completed', turn.id, 'complete', { durationMs: elapsed(queuedAt), state: 'completed' });
       return;
     }
+    if (stream && response.content) await stream.write('\n');
     if (response.tool_calls.length > 8) throw new Failure('too_many_tool_calls');
     for (const call of response.tool_calls) {
       check(signal);

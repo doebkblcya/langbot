@@ -16,7 +16,7 @@ import { SessionQueue } from './scheduler.js';
 import { SqliteStore } from './store.js';
 import { DeepSeekModel } from './model.js';
 import { ToolRegistry } from './tools.js';
-import { Sender } from './output.js';
+import { Sender, outputSchema } from './output.js';
 import { abortable, check, code, Failure } from './errors.js';
 import { checkPlugins, configurePlugins } from './plugins.js';
 import type { PluginStatus } from './plugins.js';
@@ -66,7 +66,7 @@ export const clockPlugin: Plugin.Object<void> = {
   },
 };
 export const outputPlugin: Plugin.Object<Config> = {
-  name: 'xiaolang-output', inject: ['store', 'adapter'], apply(ctx, config) { ctx.provide('output', new Sender(ctx.store, ctx.adapter, config.limits.replyChars, entry => emitLog(ctx, entry))); },
+  name: 'xiaolang-output', inject: ['store', 'adapter'], apply(ctx, config) { ctx.get('configuration')?.registerPlugin('xiaolang-output', outputSchema); ctx.provide('output', new Sender(ctx.store, ctx.adapter, config.limits.replyChars, entry => emitLog(ctx, entry))); },
 };
 export interface AppOptions {
   apiKey?: string;

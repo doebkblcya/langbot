@@ -12,7 +12,7 @@ import type { Fields, PluginInfo } from './contracts.js';
 
 interface QQSettings { appId: string; environment: 'production' | 'sandbox'; groupMessages: 'all' | 'mentions'; connectTimeoutMs: number; groupIds: string[] }
 interface PluginSettings { chatEnabled?: boolean; entries?: Record<string, { enabled?: boolean; config?: Fields }> }
-interface Settings { model: Config['model']; qq?: QQSettings; trigger?: NonNullable<Config['trigger']>; plugins?: PluginSettings; secrets: { deepseek?: string; qq?: string } }
+interface Settings { output?: Config['output']; model: Config['model']; qq?: QQSettings; trigger?: NonNullable<Config['trigger']>; plugins?: PluginSettings; secrets: { deepseek?: string; qq?: string } }
 interface Document { version: 1; active?: Settings; pending?: Settings; lastApplyFailed?: boolean }
 
 function record(value: unknown): value is Record<string, unknown> { return !!value && typeof value === 'object' && !Array.isArray(value); }
@@ -23,10 +23,11 @@ function snapshot(config: Config): Settings {
   return { model: structuredClone(config.model), ...(qq ? { qq: {
     appId: qq.appId, environment: qq.environment, groupMessages: qq.groupMessages,
     connectTimeoutMs: qq.connectTimeoutMs, groupIds: [...config.groupIds],
-  } } : {}), trigger: triggerSettings(config), secrets: {} };
+  } } : {}), trigger: triggerSettings(config), output: config.output ?? { mode: 'normal' }, secrets: {} };
 }
 function combine(base: Config, settings: Settings): Config {
   const config = structuredClone(base);
+  config.output = structuredClone(settings.output ?? base.output ?? { mode: 'normal' });
   config.model = structuredClone(settings.model);
   config.trigger = structuredClone(settings.trigger ?? triggerSettings(base));
   config.triggerWords = [...config.trigger.words];
@@ -43,7 +44,7 @@ function combine(base: Config, settings: Settings): Config {
   return validateConfig(config);
 }
 function checkSettings(raw: unknown, base: Config): Settings {
-  if (!record(raw) || !keys(raw, ['model', 'qq', 'trigger', 'plugins', 'secrets']) || !record(raw.secrets)
+  if (!record(raw) || !keys(raw, ['model', 'qq', 'trigger', 'plugins', 'output', 'secrets']) || !record(raw.secrets)
     || !keys(raw.secrets, ['deepseek', 'qq'])) throw new Failure('invalid_saved_settings');
   for (const secret of Object.values(raw.secrets)) {
     if (typeof secret !== 'string' || !secret.trim() || secret.length > 4096 || /[\r\n\0]/.test(secret)) throw new Failure('invalid_secret');
@@ -174,7 +175,7 @@ export class ConfigurationStore implements Configuration {
     const config = combine(this.base, settings);
     const info = this.catalog().find(plugin => plugin.id === id);
     if (!info) throw new Failure('plugin_not_found');
-    const entry = config.plugins?.entries.find(item => item.id === id);
+    const entry = id === 'xiaolang-output' ? { id, module: 'builtin', config: config.output as unknown as Fields } : config.plugins?.entries.find(item => item.id === id);
     const chat = id === config.plugins?.chat;
     const toggleable = info.kind === 'external' && !!entry && id !== config.plugins?.trigger && id !== 'panel' && entry.module !== './panel/index.mjs';
     const enabled = chat ? config.chatEnabled : entry ? entry.enabled !== false : info.state !== 'disabled';
@@ -225,8 +226,8 @@ export class ConfigurationStore implements Configuration {
           if (record(field) && field.writeOnly === true && (values[key] === '' || values[key] === undefined) && options.entry.config?.[key] !== undefined) values[key] = options.entry.config[key];
         }
         if (!registered.validate(values)) throw new Failure('invalid_plugin_config');
-        next.plugins.entries ??= {};
-        next.plugins.entries[id] = { ...next.plugins.entries[id], config: values };
+        if (id === 'xiaolang-output') next.output = values as unknown as Config['output'];
+        else { next.plugins.entries ??= {}; next.plugins.entries[id] = { ...next.plugins.entries[id], config: values }; }
       }
       checkSettings(next, this.base);
       const active = existing.document.active ?? this.boot;

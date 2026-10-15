@@ -22,6 +22,7 @@ export interface Config {
   groupIds: string[];
   chatEnabled: boolean;
   plugins?: PluginConfig;
+  logging?: { content?: boolean; previewChars?: number };
   model: { baseUrl: string; name: string; thinking: boolean; timeoutMs: number; maxOutputTokens: number; retries: number };
   limits: { concurrency: number; queue: number; queueAgeMs: number; turnTimeoutMs: number; contextChars: number; history: number; steps: number; toolTimeoutMs: number; toolResultChars: number; replyChars: number };
 }
@@ -36,6 +37,10 @@ const schema = {
     database: text, persona: text,
     triggerWords: { type: 'array', maxItems: 100, uniqueItems: true, items: { type: 'string', minLength: 1, maxLength: 100 } },
     groupIds: { type: 'array', maxItems: 1000, uniqueItems: true, items: identifier }, chatEnabled: { type: 'boolean' },
+    logging: { type: 'object', additionalProperties: false, properties: {
+      content: { type: 'boolean' },
+      previewChars: { type: 'integer', minimum: 1, maximum: 1000 },
+    } },
     plugins: { type: 'object', additionalProperties: false, required: ['directory', 'entries'], properties: {
       directory: text, chat: { type: 'string', pattern: '^[a-zA-Z0-9_-]{1,64}$' },
       entries: { type: 'array', maxItems: 100, items: {

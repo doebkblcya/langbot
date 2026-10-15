@@ -5,15 +5,16 @@ import { resolve, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { Config } from './config.js';
 import type { Adapter, IncomingMessage, Log, Model } from './contracts.js';
-import { log } from './contracts.js';
+import { emitLog, log, messageLog } from './contracts.js';
 import { chatPlugin } from './chat.js';
-import { normalize } from './messages.js';
+import { inspectMessage } from './messages.js';
+import { loggingPlugin } from './logging.js';
 import { SessionQueue } from './scheduler.js';
 import { SqliteStore } from './store.js';
 import { DeepSeekModel } from './model.js';
 import { ToolRegistry } from './tools.js';
 import { Sender } from './output.js';
-import { abortable, check, Failure } from './errors.js';
+import { abortable, check, code, Failure } from './errors.js';
 import { checkPlugins, configurePlugins } from './plugins.js';
 import type { PluginStatus } from './plugins.js';
 
@@ -44,12 +45,16 @@ export const triggerPlugin: Plugin.Object<Config> = {
 export const intakePlugin: Plugin.Object<Config> = {
   name: 'xiaolang-intake', inject: ['store', 'adapter'], apply(ctx, config) {
     ctx.provide('intake', { receive(event) {
-      const normalized = normalize(event, ctx.adapter, config.groupIds);
-      if (!normalized) return;
+      const result = inspectMessage(event, ctx.adapter, config.groupIds);
+      const normalized = result.message;
+      if (!normalized) { log(ctx, 'message_ignored', undefined, 'intake', { reason: result.reason }); return; }
+      const details = messageLog(normalized);
       const message = ctx.store.admit(normalized);
-      if (!message) return;
+      if (!message) { log(ctx, 'message_ignored', undefined, 'intake', { ...details, reason: 'duplicate' }); return; }
+      log(ctx, 'message_received', undefined, 'intake', { ...details, preview: message.text });
       // Observers have no default reply path, and never block message dispatch.
       void ctx.parallel('xiaolang/observed', structuredClone(message)).catch(() => log(ctx, 'observer_failed'));
+      if (!ctx.get('chat')) log(ctx, 'message_ignored', undefined, 'trigger', { ...details, reason: 'chat_disabled' });
       ctx.emit('xiaolang/message', message);
     } });
   },
@@ -67,7 +72,7 @@ export const clockPlugin: Plugin.Object<void> = {
   },
 };
 export const outputPlugin: Plugin.Object<Config> = {
-  name: 'xiaolang-output', inject: ['store', 'adapter'], apply(ctx, config) { ctx.provide('output', new Sender(ctx.store, ctx.adapter, config.limits.replyChars)); },
+  name: 'xiaolang-output', inject: ['store', 'adapter'], apply(ctx, config) { ctx.provide('output', new Sender(ctx.store, ctx.adapter, config.limits.replyChars, entry => emitLog(ctx, entry))); },
 };
 export interface AppOptions {
   apiKey?: string;
@@ -75,6 +80,8 @@ export interface AppOptions {
   adapter?: Adapter;
   signal?: AbortSignal;
   report?: (entry: Log) => void;
+  writeLog?: (line: string) => void;
+  secrets?: string[];
 }
 
 export async function createApp(config: Config, options: AppOptions) {
@@ -95,6 +102,7 @@ export async function createApp(config: Config, options: AppOptions) {
     context.provide('model', options.model ?? new DeepSeekModel(config.model, options.apiKey!));
   } };
   async function stop() {
+    log(ctx, 'application_stopping', undefined, 'lifecycle');
     state = 'stopped';
     beforeReady.length = 0;
     const active = ctx.get('chat');
@@ -110,7 +118,8 @@ export async function createApp(config: Config, options: AppOptions) {
     }
   }
   try {
-    ctx.on('xiaolang/log', entry => { options.report?.(entry); });
+    await mount(loggingPlugin, { settings: config.logging, report: options.report, write: options.writeLog,
+      secrets: [...(options.secrets ?? []), ...(options.apiKey ? [options.apiKey] : [])] });
     await mount(storePlugin, config);
     await mount(schedulerPlugin, config);
     await mount(triggerPlugin, config);
@@ -160,6 +169,7 @@ export async function createApp(config: Config, options: AppOptions) {
     if (options.signal) await abortable(starting, options.signal);
     else await starting;
     state = 'running';
+    log(ctx, 'application_ready', undefined, 'lifecycle');
     for (const message of beforeReady.splice(0)) ctx.intake.receive(message);
     return { ctx, plugins: plugins.filter(plugin => plugin.id !== 'xiaolang-adapter'), stop, stopChat: async () => {
       try { await ctx.get('chat')?.stop(); }
@@ -168,5 +178,8 @@ export async function createApp(config: Config, options: AppOptions) {
         if (config.plugins?.chat) await ctx.loader.store[config.plugins.chat]?.fiber?.dispose();
       }
     } };
-  } catch (error) { await stop(); throw error; }
+  } catch (error) {
+    log(ctx, 'application_failed', undefined, 'startup', { errorCode: code(error), level: 'error' });
+    await stop(); throw error;
+  }
 }

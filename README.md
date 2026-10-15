@@ -49,6 +49,27 @@ XIAOLANG_CONFIG=config.example.json node dist/src/main.js --check-config
 
 临时人设、FIFO 排队、上下文字符预算、模型非思考模式、重试次数和超时等是第一版的可改默认值，不视为用户逐项确认。没有开启主动插话策略。
 
+## 过程日志
+
+在 Mac 终端通过已有 SSH 配置登录 VPS，然后查看实时日志：
+
+```sh
+ssh RacknerdUS
+sudo docker logs --tail 100 -f xiaolang
+```
+
+`Ctrl+C` 只结束查看，不停止机器人。过程事件包括收到消息、忽略原因、触发、排队与等待时间、模型调用与耗时、工具名称与状态、回复短预览、逐段发送回执和整轮结果。日志中的时间为 UTC；`turn` 关联同一轮次，`message` 关联入站、忽略和触发事件。平台回执表示 QQ 接受发送，不代替客户端可见性确认；结果未知不会记录为成功，也不会自动重发。
+
+本体在处理边界发出结构化事件，由独立的日志处理插件筛选字段、脱敏、限制预览长度，再发布 `xiaolang/logged` 事件。默认预览 200 个 Unicode 字符；`logging.content: false` 可关闭所有正文预览。提示词、历史、思考内容、工具参数和工具结果不作为日志字段输出。已知环境密钥及常见凭证形式会脱敏，这不等于对任意个人信息自动匿名化。
+
+终端中文格式由外挂的 `examples/plugins/console-logger/index.mjs` 提供。复制到运行目录的 `plugins/console-logger/index.mjs`，并将下面条目加入 `plugins.entries`：
+
+```json
+{ "id": "console-logger", "module": "./console-logger/index.mjs", "config": { "format": "text" } }
+```
+
+插件提供 `logOutput.write(entry)` 服务，接收脱敏后的事件；`format: "json"` 可改为结构化输出。未启用展示插件时，正式入口回退到 JSON 输出。修改外挂展示文件或它的配置后重启即可；增加本体观测点或修改脱敏边界仍需更新镜像。日志输出异常不会改变消息处理结果。后续后台可订阅同一套脱敏事件并读取已有数据库，不需要解析终端文字。
+
 ## 扩展
 
 外部插件通过官方 `@cordisjs/plugin-loader@1.0.0-rc.7` 加载，不需要重新构建小狼镜像。当前通过**重启小狼进程／容器**读取更新，不做热更新、自动安装或插件市场。

@@ -1,6 +1,6 @@
-import type { Adapter, ModelMessage, Output, Store, Turn } from './contracts.js';
-import { id } from './contracts.js';
-import { check, Failure } from './errors.js';
+import type { Adapter, Log, ModelMessage, Output, Store, Turn } from './contracts.js';
+import { elapsed, id, messageLog } from './contracts.js';
+import { check, code, Failure } from './errors.js';
 
 export function splitText(text: string, limit: number): string[] {
   const characters = Array.from(text);
@@ -9,7 +9,8 @@ export function splitText(text: string, limit: number): string[] {
   return parts;
 }
 export class Sender implements Output {
-  constructor(private store: Store, private adapter: Adapter, private limit: number) {}
+  constructor(private store: Store, private adapter: Adapter, private limit: number, private report: (entry: Log) => void = () => {}) {}
+  private emit(entry: Log): void { try { this.report(entry); } catch { /* isolated observer */ } }
   async send(turn: Turn, text: string, protocol: ModelMessage[], signal: AbortSignal): Promise<void> {
     check(signal);
     if (!text.trim()) throw new Failure('empty_reply');
@@ -21,6 +22,9 @@ export class Sender implements Output {
     for (const [part, content] of parts.entries()) {
       check(signal);
       this.store.sendState(turn.id, part, 'sending');
+      const started = performance.now();
+      const details = { ...messageLog(turn.message), turn: turn.id, stage: 'send', part: part + 1, parts: parts.length };
+      this.emit({ ...details, code: 'send_started', preview: content });
       let platformId: string;
       try {
         const response = await this.adapter.reply(turn.message, content, part, signal);
@@ -30,9 +34,11 @@ export class Sender implements Output {
       } catch (error) {
         const unknown = !(error instanceof Failure) || error.unknownOutcome;
         this.store.sendState(turn.id, part, unknown ? 'unknown' : 'failed');
+        this.emit({ ...details, code: unknown ? 'send_unknown' : 'send_failed', durationMs: elapsed(started), errorCode: code(error) });
         throw new Failure(error instanceof Failure ? error.code : 'send_error', unknown);
       }
       platformIds.push(platformId);
+      this.emit({ ...details, code: 'send_confirmed', durationMs: elapsed(started), receipt: platformId });
       // Only confirmed text enters future chat context; a failed draft never does.
       const visible = parts.slice(0, part + 1).join('');
       const visibleProtocol = structuredClone(protocol);

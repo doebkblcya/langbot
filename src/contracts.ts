@@ -87,7 +87,14 @@ export interface Output {
   send(turn: Turn, text: string, protocol: ModelMessage[], signal: AbortSignal): Promise<void>;
 }
 export interface Chat { idle(): Promise<void>; stop(): Promise<void> }
-export interface Log { code: string; turn?: string; stage?: string; plugin?: string; dependencies?: string[] }
+export interface Log {
+  code: string; time?: string; level?: 'info' | 'warn' | 'error';
+  turn?: string; stage?: string; plugin?: string; dependencies?: string[];
+  messageId?: string; scope?: 'private' | 'group'; sender?: string; group?: string;
+  preview?: string; reason?: string; model?: string; step?: number; tool?: string;
+  part?: number; parts?: number; toolCalls?: number; durationMs?: number; waitMs?: number;
+  state?: string; errorCode?: string; receipt?: string;
+}
 
 declare module 'cordis' {
   interface Context {
@@ -100,16 +107,28 @@ declare module 'cordis' {
     tools: Tools;
     output: Output;
     chat: Chat;
+    logOutput: { write(entry: Log): void };
   }
   interface Events {
     'xiaolang/message'(message: Message): void;
     'xiaolang/observed'(message: Message): void | Promise<void>;
     'xiaolang/log'(entry: Log): void;
+    'xiaolang/logged'(entry: Log): void;
   }
 }
 
-export function log(ctx: Context, code: string, turn?: string, stage?: string): void {
-  ctx.emit('xiaolang/log', { code, turn, stage });
+export function emitLog(ctx: Context, entry: Log): void {
+  // Observability must never change the outcome of message processing.
+  try { ctx.emit('xiaolang/log', { ...entry, time: new Date().toISOString() }); } catch { /* isolated observer */ }
+}
+export function log(ctx: Context, code: string, turn?: string, stage?: string, details: Partial<Log> = {}): void {
+  emitLog(ctx, { ...details, code, turn, stage });
+}
+export function messageLog(message: Message): Partial<Log> {
+  return { messageId: message.key, scope: message.group ? 'group' : 'private', sender: message.name, group: message.group };
+}
+export function elapsed(start: number): number {
+  return Math.max(0, Math.round(performance.now() - start));
 }
 export function object(value: unknown): Fields | undefined {
   return value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Fields : undefined;

@@ -24,13 +24,13 @@ async function main(): Promise<void> {
   try {
     app = await createApp(config, {
       apiKey: process.env.DEEPSEEK_API_KEY, signal: controller.signal,
-      report: entry => console.info(JSON.stringify({ time: new Date().toISOString(), ...entry })),
+      writeLog: line => console.info(line),
+      secrets: Object.entries(process.env).filter(([key, value]) => value && /KEY|SECRET|TOKEN|PASSWORD/i.test(key)).map(([, value]) => value!),
     });
   } catch (error) {
     if (controller.signal.aborted) { process.exitCode = 0; return; }
     throw error;
   }
-  console.info(JSON.stringify({ code: 'application_ready' }));
 }
 void main().catch(error => {
   console.error(JSON.stringify({ code: code(error) }));

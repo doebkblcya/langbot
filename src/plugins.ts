@@ -5,13 +5,13 @@ import { FiberState } from 'cordis';
 import type { Context } from 'cordis';
 import type { EntryOptions } from '@cordisjs/plugin-loader';
 import type { PluginConfig, PluginEntry } from './config.js';
-import { object } from './contracts.js';
+import { emitLog, object } from './contracts.js';
 import { Failure } from './errors.js';
 
 export interface PluginStatus { id: string; state: 'active' | 'disabled' }
 
 function fail(ctx: Context, code: string, plugin: string, dependencies?: string[]): never {
-  ctx.emit('xiaolang/log', { code, plugin, dependencies });
+  emitLog(ctx, { code, plugin, dependencies });
   throw new Failure(code);
 }
 function disabled(entry: PluginEntry, settings: PluginConfig, chatEnabled: boolean): boolean {

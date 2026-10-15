@@ -18,6 +18,10 @@
   ],
   "groupIds": [],
   "chatEnabled": true,
+  "logging": {
+    "content": true,
+    "previewChars": 200
+  },
   "plugins": {
     "directory": "plugins",
     "entries": []

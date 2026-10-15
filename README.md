@@ -2,7 +2,7 @@
 
 个人定制、轻量克制、拟人化的 QQ 聊天机器人。使用 **TypeScript＋Cordis 4** 自行编写，通过独立接入插件连接 **QQ 官方机器人**。OneBot／NapCat 接入实现已移除。
 
-目前是文字主链路的第一版实现。已在美国 VPS 的 Docker 中连接 QQ 官方 WebSocket 沙箱，并验证 DeepSeek 真实调用；QQ 人工收发仍待验收，九个模块尚未全部完成。完整设计见 [主链路功能与执行流程](Docs/主链路功能与执行流程.md)，当前边界见 [实现进度](Docs/实现进度.md)。
+目前是文字主链路的第一版实现。已在美国 VPS 的 Docker 中连接 QQ 官方 WebSocket 沙箱，并验证私聊入站、DeepSeek 生成与 QQ 发送回执；群聊等验收继续进行，九个模块尚未全部完成。完整设计见 [主链路功能与执行流程](Docs/主链路功能与执行流程.md)，当前边界见 [实现进度](Docs/实现进度.md)。
 
 ## 已实现
 
@@ -45,7 +45,7 @@ XIAOLANG_CONFIG=config.example.json node dist/src/main.js --check-config
 6. `main` 每次推送通过全部检查后，Actions 导出 `linux/amd64` 镜像和 SHA-256 校验文件，保存为保留 7 天的 Artifact，不创建 Release 或发布到镜像仓库。镜像标签为 `xiaolang:<完整提交 SHA>`；导入目标 Docker 后在 `.env` 的 `XIAOLANG_IMAGE` 填写该标签。将 `compose.example.yml` 作为项目的 Compose 配置使用，无需在目标服务器重新构建。
 7. 宿主机 `data/` 挂载在 `/app/data`，`plugins/` 挂载在 `/app/plugins`，配置只读挂载；目录须允许容器用户 UID/GID 1000 读写，同一数据库只运行一个应用实例。容器内存上限 512 MiB，日志最多 3 个 10 MiB 文件，不映射端口。若自行在 Linux 构建镜像，可使用 `docker build -t xiaolang:local .`。
 
-当前 VPS 运行镜像对应提交 `2d9a005`，已验证 QQ 沙箱连接、一次真实 `deepseek-flash` 回复、容器重启后重新就绪及数据库挂载。QQ 消息收发、非 @ 群事件和真实会话恢复仍待人工联调；NAS 尚未完成部署。
+当前 VPS 运行镜像对应提交 `2d9a005`，已验证 QQ 沙箱连接、真实 `deepseek-flash` 回复、容器重启后重新就绪及数据库挂载。用户私聊 `hello` 的轮次完成，回复取得 QQ 平台回执；客户端可见性待用户确认，群消息、非 @ 群事件和真实会话恢复仍待人工联调。NAS 尚未完成部署。
 
 临时人设、FIFO 排队、上下文字符预算、模型非思考模式、重试次数和超时等是第一版的可改默认值，不视为用户逐项确认。没有开启主动插话策略。
 

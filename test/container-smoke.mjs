@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import { request as httpRequest } from 'node:http';
 import { createApp } from '/app/dist/src/app.js';
 
 // CI only: an actual Linux container with externally mounted code and zero network access.
@@ -54,7 +55,14 @@ try {
   assert.ok(!('protocol' in detail));
   const logs = await fetch('http://127.0.0.1:18080/api/logs').then(response => response.json());
   assert.ok(logs.items.some(item => item.entry.code === 'turn_completed'));
-  assert.equal((await fetch('http://127.0.0.1:18080/api/status', { headers: { Host: 'evil.example' } })).status, 403);
+  // fetch may normalize Host to the URL authority; send an actual hostile Host over HTTP.
+  const rejectedHost = await new Promise((resolve, reject) => {
+    const request = httpRequest('http://127.0.0.1:18080/api/status', { headers: { Host: 'evil.example' } }, response => {
+      response.resume(); resolve(response.statusCode);
+    });
+    request.on('error', reject); request.end();
+  });
+  assert.equal(rejectedHost, 403);
   assert.equal((await fetch('http://127.0.0.1:18080/api/status', { method: 'POST' })).status, 405);
   assert.ok((await fetch('http://127.0.0.1:18080/').then(response => response.text())).includes('小狼'));
   console.info('Mounted external plugin: OK');

@@ -13,6 +13,7 @@ const labels = {
   tool_started: '调用工具', tool_completed: '工具完成', tool_failed: '工具失败', tool_unknown: '工具结果未知',
   send_started: '发送回复', send_confirmed: 'QQ 已确认发送', send_failed: '发送失败', send_unknown: '发送结果未知',
   turn_completed: '本轮完成', turn_failed: '本轮失败',
+  feedback_started: '发送故障提示', feedback_sent: '故障提示已发送', feedback_failed: '故障提示发送失败', feedback_unknown: '故障提示结果未知', feedback_skipped: '未追加故障提示',
   panel_listening: '面板已启动', panel_server_error: '面板服务异常',
 };
 const reasons = {

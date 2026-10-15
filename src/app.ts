@@ -4,9 +4,11 @@ import { Loader } from '@cordisjs/plugin-loader';
 import { resolve, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { Config } from './config.js';
-import type { Adapter, Configuration, IncomingMessage, Log, Model } from './contracts.js';
+import type { Adapter, Configuration, IncomingMessage, Log, Model, PluginInfo } from './contracts.js';
 import { emitLog, log, messageLog } from './contracts.js';
 import { chatPlugin } from './chat.js';
+import { triggerPlugin, triggerSettings } from './trigger.js';
+import { faultFeedbackPlugin } from './fault-feedback.js';
 import { inspectMessage } from './messages.js';
 import { loggingPlugin } from './logging.js';
 import { inspectionPlugin } from './inspection.js';
@@ -32,16 +34,6 @@ export const schedulerPlugin: Plugin.Object<Config> = {
     const queue = new SessionQueue(config.limits.concurrency, config.limits.queue, config.limits.queueAgeMs);
     ctx.effect(() => () => queue.close());
     ctx.provide('scheduler', queue);
-  },
-};
-export const triggerPlugin: Plugin.Object<Config> = {
-  name: 'xiaolang-trigger', apply(ctx, config) {
-    ctx.provide('trigger', { match(message) {
-      if (!message.group) return 'private';
-      if (message.segments.some(part => part.type === 'mention' && part.userId === message.account)) return 'mention';
-      if (config.triggerWords.some(word => message.text.includes(word))) return 'keyword';
-      return undefined;
-    } });
   },
 };
 export const intakePlugin: Plugin.Object<Config> = {
@@ -94,6 +86,34 @@ export async function createApp(config: Config, options: AppOptions) {
   let loader: Fiber | undefined;
   let adapter: Adapter | undefined = options.adapter;
   let state: 'starting' | 'running' | 'stopped' = 'starting';
+  const metadata: Record<string, [string, string]> = {
+    'xiaolang-logging': ['日志处理', 'src/logging.ts'], 'xiaolang-store': ['会话存储', 'src/store.ts'],
+    'xiaolang-inspection': ['运行观察', 'src/inspection.ts'], 'xiaolang-configuration': ['配置管理', 'src/configuration.ts'],
+    'xiaolang-scheduler': ['任务调度', 'src/scheduler.ts'], 'xiaolang-trigger': ['消息触发', 'src/trigger.ts'],
+    'xiaolang-tools': ['工具注册与执行', 'src/tools.ts'], 'xiaolang-clock': ['查询时间工具', 'src/app.ts'],
+    'xiaolang-intake': ['消息接纳', 'src/messages.ts'], 'xiaolang-deepseek': ['DeepSeek 模型', 'src/model.ts'],
+    'xiaolang-output': ['统一发送', 'src/output.ts'], 'xiaolang-chat': ['默认聊天编排', 'src/chat.ts'],
+    'xiaolang-fault-feedback': ['故障反馈', 'src/fault-feedback.ts'],
+    'xiaolang-injected-adapter': ['接入服务（测试注入）', 'injected'],
+  };
+  const stateName = (fiber?: Fiber) => fiber?.state === FiberState.ACTIVE ? 'active' : fiber?.state === FiberState.FAILED ? 'failed'
+    : fiber?.state === FiberState.DISPOSED ? 'disabled' : fiber?.state === FiberState.UNLOADING ? 'stopping' : 'pending';
+  function pluginList(): PluginInfo[] {
+    const core: PluginInfo[] = fibers.map(fiber => ({ id: fiber.name || 'loader', title: metadata[fiber.name]?.[0] ?? 'Cordis 插件加载器',
+      module: metadata[fiber.name]?.[1] ?? '@cordisjs/plugin-loader', kind: 'builtin', state: stateName(fiber), dependencies: Object.keys(fiber.inject), provides: Object.keys(fiber.store ?? {}) }));
+    if (!config.chatEnabled && !config.plugins?.chat) core.push({ id: 'xiaolang-chat', title: '默认聊天编排', module: 'src/chat.ts', kind: 'builtin', state: 'disabled', dependencies: ['store', 'scheduler', 'trigger', 'model', 'tools', 'output'], provides: ['chat'] });
+    if (config.failureFeedback?.enabled === false) core.push({ id: 'xiaolang-fault-feedback', title: '故障反馈', module: 'src/fault-feedback.ts', kind: 'builtin', state: 'disabled', dependencies: ['output'], provides: ['faultFeedback'] });
+    const entries = [...(config.plugins?.entries ?? [])];
+    if (!options.adapter) entries.unshift({ id: 'xiaolang-adapter', ...config.adapter });
+    return [...core, ...entries.map(entry => {
+      const fiber = ctx.get('loader')?.store[entry.id]?.fiber;
+      return { id: entry.id, title: entry.id === 'xiaolang-adapter' ? 'QQ 官方接入' : entry.id === config.plugins?.trigger ? '消息触发（替换插件）'
+        : entry.id === config.plugins?.chat ? '聊天编排（替换插件）' : entry.id === 'panel' ? '管理面板' : entry.id === 'console-logger' ? '终端日志展示' : entry.id,
+        module: entry.module, kind: entry.module.startsWith('builtin:') ? 'builtin' as const : 'external' as const,
+        state: entry.enabled === false || (entry.id === config.plugins?.chat && !config.chatEnabled) ? 'disabled' : stateName(fiber),
+        dependencies: fiber ? Object.keys(fiber.inject) : [], provides: Object.keys(fiber?.store ?? {}) };
+    })];
+  }
   const beforeReady: IncomingMessage[] = [];
   async function mount<T>(plugin: Plugin<T>, config: T): Promise<Fiber> {
     const fiber = await ctx.plugin(plugin, config);
@@ -124,17 +144,18 @@ export async function createApp(config: Config, options: AppOptions) {
     await mount(loggingPlugin, { settings: config.logging, report: options.report, write: options.writeLog,
       secrets: [...(options.secrets ?? []), ...(options.apiKey ? [options.apiKey] : [])] });
     await mount(storePlugin, config);
-    await mount(inspectionPlugin, config);
+    await mount(inspectionPlugin, { config, plugins: pluginList });
     if (options.configuration) await mount({ name: 'xiaolang-configuration', apply(context) {
       context.provide('configuration', options.configuration!);
     } }, undefined);
     await mount(schedulerPlugin, config);
-    await mount(triggerPlugin, config);
+    if (!config.plugins?.trigger) await mount(triggerPlugin, config);
     await mount(toolsPlugin, undefined);
     await mount(clockPlugin, undefined);
     await mount(intakePlugin, config);
     await mount(modelPlugin, undefined);
     await mount(outputPlugin, config);
+    if (config.failureFeedback?.enabled !== false) await mount(faultFeedbackPlugin, config);
     const settings = config.plugins ?? { directory: 'plugins', entries: [] };
     const entries = [...settings.entries];
     if (options.adapter) {
@@ -161,7 +182,8 @@ export async function createApp(config: Config, options: AppOptions) {
       const active = ctx.get('chat');
       if (!active || typeof active.idle !== 'function' || typeof active.stop !== 'function') throw new Failure('invalid_chat_service');
     }
-    if (adapter.capabilities.groupMessages === 'mentions' && config.triggerWords.length) log(ctx, 'adapter_group_messages_limited');
+    if (!ctx.get('trigger') || typeof ctx.trigger.match !== 'function') throw new Failure('invalid_trigger_service');
+    if (adapter.capabilities.groupMessages === 'mentions' && triggerSettings(config).groupKeywords && triggerSettings(config).words.length) log(ctx, 'adapter_group_messages_limited');
     if (options.signal) check(options.signal);
     const owned = adapter;
     const starting = Promise.resolve(owned.start(message => {

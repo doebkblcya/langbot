@@ -6,9 +6,13 @@ import { loadConfig, validateConfig } from './config.js';
 import { validateQQConfig } from './adapters/qq-official.js';
 import type { Configuration } from './contracts.js';
 import { Failure } from './errors.js';
+import { triggerSettings } from './trigger.js';
+import { Ajv } from 'ajv';
+import type { Fields, PluginInfo } from './contracts.js';
 
 interface QQSettings { appId: string; environment: 'production' | 'sandbox'; groupMessages: 'all' | 'mentions'; connectTimeoutMs: number; groupIds: string[] }
-interface Settings { model: Config['model']; qq?: QQSettings; secrets: { deepseek?: string; qq?: string } }
+interface PluginSettings { chatEnabled?: boolean; entries?: Record<string, { enabled?: boolean; config?: Fields }> }
+interface Settings { model: Config['model']; qq?: QQSettings; trigger?: NonNullable<Config['trigger']>; plugins?: PluginSettings; secrets: { deepseek?: string; qq?: string } }
 interface Document { version: 1; active?: Settings; pending?: Settings; lastApplyFailed?: boolean }
 
 function record(value: unknown): value is Record<string, unknown> { return !!value && typeof value === 'object' && !Array.isArray(value); }
@@ -19,11 +23,17 @@ function snapshot(config: Config): Settings {
   return { model: structuredClone(config.model), ...(qq ? { qq: {
     appId: qq.appId, environment: qq.environment, groupMessages: qq.groupMessages,
     connectTimeoutMs: qq.connectTimeoutMs, groupIds: [...config.groupIds],
-  } } : {}), secrets: {} };
+  } } : {}), trigger: triggerSettings(config), secrets: {} };
 }
 function combine(base: Config, settings: Settings): Config {
   const config = structuredClone(base);
   config.model = structuredClone(settings.model);
+  config.trigger = structuredClone(settings.trigger ?? triggerSettings(base));
+  config.triggerWords = [...config.trigger.words];
+  if (settings.plugins) {
+    if (settings.plugins.chatEnabled !== undefined) config.chatEnabled = settings.plugins.chatEnabled;
+    if (config.plugins) config.plugins.entries = config.plugins.entries.map(entry => ({ ...entry, ...settings.plugins?.entries?.[entry.id] }));
+  }
   if (settings.qq) {
     if (config.adapter.module !== 'builtin:qq-official') throw new Failure('qq_configuration_unavailable');
     const { groupIds, ...qq } = settings.qq;
@@ -33,19 +43,30 @@ function combine(base: Config, settings: Settings): Config {
   return validateConfig(config);
 }
 function checkSettings(raw: unknown, base: Config): Settings {
-  if (!record(raw) || !keys(raw, ['model', 'qq', 'secrets']) || !record(raw.secrets)
+  if (!record(raw) || !keys(raw, ['model', 'qq', 'trigger', 'plugins', 'secrets']) || !record(raw.secrets)
     || !keys(raw.secrets, ['deepseek', 'qq'])) throw new Failure('invalid_saved_settings');
   for (const secret of Object.values(raw.secrets)) {
     if (typeof secret !== 'string' || !secret.trim() || secret.length > 4096 || /[\r\n\0]/.test(secret)) throw new Failure('invalid_secret');
   }
   if (raw.qq !== undefined && (!record(raw.qq) || Object.keys(raw.qq).length !== 5 || !keys(raw.qq, ['appId', 'environment', 'groupMessages', 'connectTimeoutMs', 'groupIds'])
     || !Array.isArray(raw.qq.groupIds))) throw new Failure('invalid_saved_settings');
+  if (raw.plugins !== undefined) {
+    if (!record(raw.plugins) || !keys(raw.plugins, ['chatEnabled', 'entries'])
+      || (raw.plugins.chatEnabled !== undefined && typeof raw.plugins.chatEnabled !== 'boolean')) throw new Failure('invalid_saved_settings');
+    if (raw.plugins.entries !== undefined) {
+      if (!record(raw.plugins.entries) || Object.keys(raw.plugins.entries).length > 100) throw new Failure('invalid_saved_settings');
+      for (const [id, entry] of Object.entries(raw.plugins.entries)) {
+        if (!/^[a-zA-Z0-9_-]{1,64}$/.test(id) || !record(entry) || !keys(entry, ['enabled', 'config'])
+          || (entry.enabled !== undefined && typeof entry.enabled !== 'boolean') || (entry.config !== undefined && !record(entry.config))) throw new Failure('invalid_saved_settings');
+      }
+    }
+  }
   const settings = raw as unknown as Settings;
   combine(base, settings);
   return settings;
 }
 
-/** Only these two configuration sections are writable; credentials never leave this service. */
+/** Only explicitly allowed configuration sections are writable; credentials never leave this service. */
 export class ConfigurationStore implements Configuration {
   readonly config: Config;
   readonly secrets: { deepseek?: string; qq?: string };
@@ -54,6 +75,21 @@ export class ConfigurationStore implements Configuration {
   private writing = false;
   private restarting = false;
   private bootPending: boolean;
+  private catalog: () => PluginInfo[] = () => [];
+  private schemas = new Map<string, { schema: Fields; validate: ReturnType<Ajv['compile']> }>();
+  bindPlugins(catalog: () => PluginInfo[]): void { this.catalog = catalog; }
+  registerPlugin(id: string, schema: Fields): void {
+    if (schema.type !== 'object' || !record(schema.properties) || JSON.stringify(schema).length > 16000
+      || !keys(schema, ['type', 'title', 'description', 'properties', 'required', 'additionalProperties'])) throw new Failure('invalid_plugin_config_schema');
+    for (const [key, field] of Object.entries(schema.properties)) {
+      if (!/^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/.test(key) || !record(field) || !['string', 'number', 'integer', 'boolean', 'array'].includes(String(field.type))
+        || !keys(field, ['type', 'title', 'description', 'default', 'enum', 'minimum', 'maximum', 'minLength', 'maxLength', 'pattern', 'writeOnly', 'items', 'maxItems', 'uniqueItems'])
+        || (field.type === 'array' && (!record(field.items) || field.items.type !== 'string' || !keys(field.items, ['type', 'minLength', 'maxLength'])))) throw new Failure('invalid_plugin_config_schema');
+    }
+    const copy = structuredClone({ ...schema, additionalProperties: false });
+    try { this.schemas.set(id, { schema: copy, validate: new Ajv({ strict: true }).compile(copy) }); }
+    catch { throw new Failure('invalid_plugin_config_schema'); }
+  }
   private constructor(private base: Config, readonly path: string, document: Document,
     private environment: NodeJS.ProcessEnv, private restart: () => void, private canRestart: () => boolean) {
     this.initial = snapshot(base);
@@ -104,10 +140,11 @@ export class ConfigurationStore implements Configuration {
       model: { ...settings.model, secretConfigured: !!(settings.secrets.deepseek || this.environment.DEEPSEEK_API_KEY) },
       qq: { ...settings.qq, supported: this.base.adapter.module === 'builtin:qq-official',
         secretConfigured: !!(settings.secrets.qq || (qq && this.environment[qq.secretEnv])), transport: 'websocket' },
+      trigger: { ...(settings.trigger ?? triggerSettings(this.base)), supported: !this.base.plugins?.trigger },
       active: { model: this.config.model.name, appId: this.config.adapter.config?.appId, environment: this.config.adapter.config?.environment },
     };
   }
-  async save(section: 'model' | 'qq', raw: unknown): Promise<Record<string, unknown>> {
+  async save(section: 'model' | 'qq' | 'trigger', raw: unknown): Promise<Record<string, unknown>> {
     if (this.writing || this.restarting) throw new Failure('settings_busy');
     this.writing = true;
     try {
@@ -119,14 +156,82 @@ export class ConfigurationStore implements Configuration {
       if (section === 'qq') {
         if (!next.qq) throw new Failure('qq_configuration_unavailable');
         next.qq = raw.value as unknown as QQSettings;
+      } else if (section === 'trigger') {
+        if (this.base.plugins?.trigger) throw new Failure('trigger_configuration_unavailable');
+        next.trigger = raw.value as unknown as NonNullable<Config['trigger']>;
       } else next.model = raw.value as unknown as Config['model'];
       const secret = typeof raw.secret === 'string' ? raw.secret.trim() : '';
+      if (secret && section === 'trigger') throw new Failure('invalid_settings_request');
       if (secret) next.secrets[section === 'model' ? 'deepseek' : 'qq'] = secret;
       checkSettings(next, this.base);
       const active = existing.document.active ?? this.boot;
       await this.write({ version: 1, active,
         ...(JSON.stringify(next) === JSON.stringify(active) ? {} : { pending: next }) });
       return await this.view();
+    } finally { this.writing = false; }
+  }
+  private pluginOptions(id: string, settings: Settings) {
+    const config = combine(this.base, settings);
+    const info = this.catalog().find(plugin => plugin.id === id);
+    if (!info) throw new Failure('plugin_not_found');
+    const entry = config.plugins?.entries.find(item => item.id === id);
+    const chat = id === config.plugins?.chat;
+    const toggleable = info.kind === 'external' && !!entry && id !== config.plugins?.trigger && id !== 'panel' && entry.module !== './panel/index.mjs';
+    const enabled = chat ? config.chatEnabled : entry ? entry.enabled !== false : info.state !== 'disabled';
+    const consumers = enabled ? this.catalog().filter(other => other.id !== id && other.state === 'active'
+      && !(other.id === 'xiaolang-chat' && !config.chatEnabled) && !(other.id === config.plugins?.chat && !config.chatEnabled)
+      && config.plugins?.entries.find(item => item.id === other.id)?.enabled !== false
+      && other.dependencies.some(service => info.provides.includes(service))) : [];
+    return { config, info, entry, chat, enabled, canToggle: toggleable && !consumers.length,
+      toggleReason: info.kind === 'builtin' ? '内置插件不提供启停操作。' : !toggleable ? '当前接入、触发或管理入口所必需，不能直接停用。'
+        : consumers.length ? `被以下插件依赖：${consumers.map(item => item.title).join('、')}` : '' };
+  }
+  async plugin(id: string): Promise<Record<string, unknown>> {
+    const { document, revision } = await ConfigurationStore.read(this.path, this.base);
+    const settings = document.pending ?? document.active ?? this.initial;
+    const options = this.pluginOptions(id, settings);
+    const schema = this.schemas.get(id)?.schema;
+    const values: Fields = {}, secretConfigured: Record<string, boolean> = {};
+    if (schema && record(schema.properties)) for (const [key, field] of Object.entries(schema.properties)) {
+      if (record(field) && field.writeOnly === true) secretConfigured[key] = !!options.entry?.config?.[key];
+      else if (options.entry?.config?.[key] !== undefined) values[key] = structuredClone(options.entry.config[key]);
+    }
+    const settingsPage = id === 'xiaolang-trigger' ? 'trigger-settings' : id === 'xiaolang-deepseek' ? 'model-settings'
+      : id === 'xiaolang-adapter' && this.base.adapter.module === 'builtin:qq-official' ? 'qq-settings' : undefined;
+    return { revision, ...options.info, enabled: options.enabled, canToggle: options.canToggle, toggleReason: options.toggleReason,
+      schema, config: values, secretConfigured, settingsPage };
+  }
+  async savePlugin(id: string, raw: unknown): Promise<Record<string, unknown>> {
+    if (this.writing || this.restarting) throw new Failure('settings_busy');
+    this.writing = true;
+    try {
+      if (!record(raw) || !keys(raw, ['revision', 'enabled', 'config']) || typeof raw.revision !== 'string'
+        || (raw.enabled !== undefined && typeof raw.enabled !== 'boolean') || (raw.config !== undefined && !record(raw.config))) throw new Failure('invalid_settings_request');
+      const existing = await ConfigurationStore.read(this.path, this.base);
+      if (raw.revision !== existing.revision) throw new Failure('settings_conflict');
+      const next = structuredClone(existing.document.pending ?? existing.document.active ?? this.initial);
+      const options = this.pluginOptions(id, next);
+      next.plugins ??= {};
+      if (raw.enabled !== undefined && raw.enabled !== options.enabled) {
+        if (!options.canToggle) throw new Failure('plugin_required');
+        if (options.chat) next.plugins.chatEnabled = raw.enabled;
+        else { next.plugins.entries ??= {}; next.plugins.entries[id] = { ...next.plugins.entries[id], enabled: raw.enabled }; }
+      }
+      if (raw.config !== undefined) {
+        const registered = this.schemas.get(id);
+        if (!registered || !options.entry) throw new Failure('plugin_not_configurable');
+        const values = structuredClone(raw.config);
+        for (const [key, field] of Object.entries(registered.schema.properties as Fields)) {
+          if (record(field) && field.writeOnly === true && (values[key] === '' || values[key] === undefined) && options.entry.config?.[key] !== undefined) values[key] = options.entry.config[key];
+        }
+        if (!registered.validate(values)) throw new Failure('invalid_plugin_config');
+        next.plugins.entries ??= {};
+        next.plugins.entries[id] = { ...next.plugins.entries[id], config: values };
+      }
+      checkSettings(next, this.base);
+      const active = existing.document.active ?? this.boot;
+      await this.write({ version: 1, active, ...(JSON.stringify(next) === JSON.stringify(active) ? {} : { pending: next }) });
+      return { ...await this.view(), plugin: await this.plugin(id) };
     } finally { this.writing = false; }
   }
   async apply(expectedRevision: string): Promise<void> {

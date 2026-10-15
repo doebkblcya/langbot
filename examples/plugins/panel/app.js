@@ -4,18 +4,19 @@ const words = { connected: '已连接', disconnected: '已断开', starting: '�
   completed: '已完成', queued: '等待处理', running: '处理中', sending: '发送中', unknown: '结果未知', expired: '已过期', cancelled: '已取消',
   active: '已启用', disabled: '已停用', pending: '等待激活', sent: '已确认发送', succeeded: '已成功', private: '私聊', mention: '@机器人', keyword: '触发词' };
 const stages = { application_ready: '小狼已就绪', application_stopping: '小狼正在停止', application_failed: '启动失败', qq_connected: 'QQ 已连接', qq_disconnected: 'QQ 已断开',
-  qq_connection_error: 'QQ 连接异常', qq_connection_failed: 'QQ 连接失败', adapter_group_messages_limited: '非 @ 群消息推送权限待验证', panel_listening: '面板已启动',
+  qq_connection_error: 'QQ 连接异常', qq_connection_failed: 'QQ 连接失败', adapter_group_messages_limited: '非 @ 群消息推送权限待验证', panel_listening: '面板已启动', feedback_started: '发送故障提示', feedback_sent: '故障提示已确认发送', feedback_failed: '故障提示发送失败', feedback_unknown: '故障提示结果未知', feedback_skipped: '未追加故障提示',
   message_received: '收到消息', message_ignored: '忽略消息', trigger_matched: '触发回复', turn_queued: '等待调度', turn_started: '开始处理',
   model_started: '调用模型', model_completed: '模型返回', model_failed: '模型调用失败', reply_generated: '生成回复',
   tool_started: '调用工具', tool_completed: '工具完成', tool_failed: '工具失败', tool_unknown: '工具结果未知',
   send_started: '发送回复', send_confirmed: 'QQ 已确认发送', send_failed: '发送失败', send_unknown: '发送结果未知', turn_completed: '本轮完成' };
 const reasons = { private: '私聊默认回复', mention: '@机器人', keyword: '命中触发词', no_trigger: '未触发回复', duplicate: '重复消息', own_message: '机器人自身消息', group_not_allowed: '群不在白名单', chat_disabled: '聊天已停用', invalid_message: '格式无效', account_mismatch: '账号不匹配' };
-const descriptions = { overview: ['运行概览', '看看小狼现在怎么样。'], chats: ['最近聊天', '收到的消息、生成的回复，以及每一轮的处理结果。'], logs: ['过程日志', '从收到消息到发送回复，跟着每一步看。'], plugins: ['插件列表', '查看当前的小狼由哪些插件组成。'], 'model-settings': ['回复模型', '配置模型连接与生成方式。'], 'qq-settings': ['QQ 接入', '配置小狼连接的机器人与消息范围。'] };
+const descriptions = { overview: ['运行概览', '看看小狼现在怎么样。'], chats: ['最近聊天', '收到的消息、生成的回复，以及每一轮的处理结果。'], logs: ['过程日志', '从收到消息到发送回复，跟着每一步看。'], plugins: ['插件列表', '查看当前的小狼由哪些插件组成。'], 'model-settings': ['回复模型', '配置模型连接与生成方式。'], 'qq-settings': ['QQ 接入', '配置小狼连接的机器人与消息范围。'], 'trigger-settings': ['触发规则', '决定小狼什么时候回复。'] };
 const dateFormat = new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Shanghai', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false });
 const timeFormat = new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Shanghai', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
 let logs = [], cursor = 0, before, next = null, busy = false, turnRequest = 0, selected, runStarted;
 let settings, settingsLoading = false, applying = false;
 const dirtyForms = new Set();
+let pluginDetails, pluginDirty = false;
 function element(tag, className, text) { const node = document.createElement(tag); if (className) node.className = className; if (text !== undefined) node.textContent = text; return node; }
 function time(value, full = false) { const date = new Date(value); return Number.isFinite(date.getTime()) ? (full ? dateFormat : timeFormat).format(date) : '—'; }
 function tone(state) { return ['completed', 'connected', 'active', 'sent', 'succeeded', 'ready'].includes(state) ? 'good' : ['failed', 'error', 'unknown'].includes(state) ? 'bad' : ['queued', 'running', 'sending', 'pending', 'starting'].includes(state) ? 'waiting' : 'neutral'; }
@@ -46,10 +47,16 @@ function renderStatus(status) {
   $('last-message').textContent = status.lastMessage ? time(status.lastMessage, true) : '本次启动尚无消息';
   const active = status.plugins.filter(plugin => plugin.state === 'active').length;
   $('plugin-count').textContent = `${active} / ${status.plugins.length}`;
-  $('plugins-summary').textContent = `${active} 个已启用`;
+  const builtin = status.plugins.filter(plugin => plugin.kind === 'builtin').length;
+  $('plugins-summary').textContent = `内置 ${builtin} · 外挂 ${status.plugins.length - builtin} · 已启用 ${active}`;
   $('plugin-empty').hidden = status.plugins.length > 0;
   $('plugin-rows').replaceChildren(...status.plugins.map(plugin => {
-    const row = element('tr'); row.append(element('td', '', plugin.id), element('td', 'module', plugin.module));
+    const row = element('tr'), name = element('td'), source = element('td');
+    name.append(element('strong', '', plugin.title ?? plugin.id), element('div', 'module', plugin.id));
+    source.append(element('span', 'badge neutral', plugin.kind === 'builtin' ? '内置' : '外挂'), element('div', 'module', plugin.module));
+    row.classList.add('turn-row'); row.tabIndex = 0; row.setAttribute('aria-label', `查看插件：${plugin.title ?? plugin.id}`);
+    row.addEventListener('click', () => openPlugin(plugin.id)); row.addEventListener('keydown', event => { if (event.key === 'Enter') openPlugin(plugin.id); });
+    row.append(name, source, element('td', 'module', plugin.dependencies?.join('、') || '无'));
     const cell = element('td'); cell.append(badge(plugin.state)); row.append(cell); return row;
   }));
 }
@@ -122,7 +129,7 @@ async function openDetail(id) {
     body.append(detailSection(`已确认回复${detail.replyTruncated ? '（已截断）' : ''}`, detail.reply || '尚无已确认发送的回复', 'reply'));
     if (detail.sends.length) {
       const section = element('section', 'detail-section'); section.append(element('h3', '', '逐段发送结果'));
-      for (const send of detail.sends) { const row = element('div', 'send-line'); row.append(element('span', 'muted', `第 ${send.part} 段 `), badge(send.state), element('p', '', send.text)); if (send.receipt) row.append(element('div', 'mono', `回执 ${send.receipt}`)); section.append(row); }
+      for (const send of detail.sends) { const row = element('div', 'send-line'); row.append(element('span', 'muted', send.kind === 'feedback' ? '故障提示 ' : `第 ${send.part} 段 `), badge(send.state), element('p', '', send.text)); if (send.receipt) row.append(element('div', 'mono', `回执 ${send.receipt}`)); section.append(row); }
       body.append(section);
     }
     if (detail.tools.length) body.append(detailSection('工具调用', detail.tools.map(tool => `${tool.name} · ${words[tool.state] ?? tool.state}`).join('\n')));
@@ -166,6 +173,8 @@ const settingsErrors = {
   invalid_saved_settings: '配置不符合要求，请检查字段和填写范围。', invalid_secret: '密钥格式不正确，请检查是否包含换行。',
   invalid_url: 'API 地址格式不正确，不能包含账号、密码或查询参数。',
   write_authorization_required: '页面连接已更新，请重新读取配置后再保存。', configuration_unavailable: '当前运行方式没有启用配置写入服务。',
+  trigger_configuration_unavailable: '当前使用外部触发插件，请配置该插件。',
+  plugin_required: '该插件仍被使用或属于管理入口，不能停用。', plugin_not_configurable: '插件尚未声明可编辑的配置。', invalid_plugin_config: '插件配置不符合声明的格式，请检查。', plugin_not_found: '插件不存在，请刷新列表。',
   settings_write_failed: '配置未保存成功，请检查数据目录权限。', invalid_settings_request: '配置格式不正确，请重新读取后重试。',
 };
 async function settingsRequest(path, body) {
@@ -179,7 +188,7 @@ function formMessage(section, message, kind = '') {
   const target = $(`${section}-settings-message`); target.textContent = message; target.className = kind ? `form-${kind}` : 'muted';
 }
 function formValue(form, name, value) { form.elements.namedItem(name).value = value ?? ''; }
-function fillSettings(data, sections = ['model', 'qq']) {
+function fillSettings(data, sections = ['model', 'qq', 'trigger']) {
   settings = data;
   $('settings-banner').hidden = !data.pendingRestart && !data.lastApplyFailed;
   $('settings-banner-text').textContent = data.lastApplyFailed ? '上次应用失败，已恢复上一份可用配置。请检查 QQ 凭证或连接设置。' : '配置已保存，尚未生效。应用时会短暂重启，处理中的消息结束后才可操作。';
@@ -195,10 +204,18 @@ function fillSettings(data, sections = ['model', 'qq']) {
       formValue(form, 'thinking', String(values.thinking)); formValue(form, 'timeoutSeconds', values.timeoutMs / 1000);
       formValue(form, 'stop', (values.stop ?? []).join('\n'));
       if (data.turnTimeoutMs) $('model-budget-note').textContent = `仍受单轮 ${data.turnTimeoutMs / 1000} 秒总超时约束。`;
-    } else {
+    } else if (section === 'qq') {
       for (const name of ['appId', 'environment', 'groupMessages']) formValue(form, name, values[name]);
       formValue(form, 'connectTimeoutSeconds', values.connectTimeoutMs / 1000); formValue(form, 'groupIds', (values.groupIds ?? []).join('\n'));
       for (const control of form.elements) control.disabled = values.supported === false;
+    }
+    if (section === 'trigger') {
+      for (const name of ['privateReply', 'groupMention', 'groupKeywords']) form.elements.namedItem(name).checked = values[name];
+      formValue(form, 'words', (values.words ?? []).join('\n'));
+      for (const control of form.elements) control.disabled = values.supported === false;
+      $('trigger-provider').textContent = values.supported === false ? '使用外部替换插件' : '内置默认插件';
+      formMessage(section, values.supported === false ? '当前由外部触发插件负责，请使用该插件的配置。' : '保存后应用配置生效。');
+      continue;
     }
     formValue(form, 'secret', '');
     $(`${section}-secret-state`).textContent = values.secretConfigured ? '已有密钥 · 不回显；留空保留，填写则替换。' : '尚未配置密钥，请填写。';
@@ -206,10 +223,10 @@ function fillSettings(data, sections = ['model', 'qq']) {
   }
   syncThinkingFields();
 }
-async function loadSettings(sections = ['model', 'qq']) {
+async function loadSettings(sections = ['model', 'qq', 'trigger']) {
   if (settingsLoading) return; settingsLoading = true;
   try { fillSettings(await settingsRequest('/api/settings'), sections); }
-  catch (error) { for (const section of ['model', 'qq']) formMessage(section, error.message, 'error'); }
+  catch (error) { for (const section of ['model', 'qq', 'trigger']) formMessage(section, error.message, 'error'); }
   finally { settingsLoading = false; }
 }
 function syncThinkingFields() {
@@ -218,7 +235,7 @@ function syncThinkingFields() {
   form.elements.namedItem('topP').disabled = !thinking;
   form.elements.namedItem('reasoningEffort').disabled = !thinking;
 }
-for (const section of ['model', 'qq']) {
+for (const section of ['model', 'qq', 'trigger']) {
   const form = $(`${section}-form`);
   form.addEventListener('input', () => { dirtyForms.add(section); formMessage(section, '有未保存的修改。'); syncThinkingFields(); });
   form.addEventListener('change', () => { dirtyForms.add(section); formMessage(section, '有未保存的修改。'); syncThinkingFields(); });
@@ -234,11 +251,13 @@ for (const section of ['model', 'qq']) {
       for (const name of ['temperature', 'topP']) if (control(name) !== '') value[name] = Number(control(name));
       if (control('reasoningEffort')) value.reasoningEffort = control('reasoningEffort');
       if (lines(control('stop')).length) value.stop = lines(control('stop'));
-    } else value = { appId: control('appId').trim(), environment: control('environment'), groupMessages: control('groupMessages'),
+    } else if (section === 'qq') value = { appId: control('appId').trim(), environment: control('environment'), groupMessages: control('groupMessages'),
       connectTimeoutMs: Number(control('connectTimeoutSeconds')) * 1000, groupIds: lines(control('groupIds')) };
+    else value = { privateReply: form.elements.namedItem('privateReply').checked, groupMention: form.elements.namedItem('groupMention').checked,
+      groupKeywords: form.elements.namedItem('groupKeywords').checked, words: [...new Set(lines(control('words')))] };
     const button = form.querySelector('button[type="submit"]'); button.disabled = true;
     try {
-      const result = await settingsRequest(`/api/settings/${section}`, { revision: settings.revision, value, secret: control('secret') });
+      const result = await settingsRequest(`/api/settings/${section}`, { revision: settings.revision, value, ...(section === 'trigger' ? {} : { secret: control('secret') }) });
       dirtyForms.delete(section); fillSettings(result, [section]);
       formMessage(section, result.pendingRestart ? '已保存。点击上方“应用配置并重启”后生效。' : '配置与运行中的设置一致。', 'success');
     } catch (error) { formMessage(section, error.message, 'error'); }
@@ -250,7 +269,7 @@ for (const button of document.querySelectorAll('[data-reload-settings]')) button
 });
 $('apply-settings').addEventListener('click', async () => {
   if (!settings || applying) return;
-  if (dirtyForms.size) { $('settings-banner-text').textContent = '还有未保存的修改，请先保存，再应用配置。'; return; }
+  if (dirtyForms.size || pluginDirty) { $('settings-banner-text').textContent = '还有未保存的修改，请先保存，再应用配置。'; return; }
   applying = true; $('apply-settings').disabled = true;
   try {
     await settingsRequest('/api/settings/apply', { revision: settings.revision });
@@ -259,6 +278,86 @@ $('apply-settings').addEventListener('click', async () => {
     applying = false; $('apply-settings').disabled = false; $('settings-banner-text').textContent = error.message;
   }
 });
+
+
+async function openPlugin(id) {
+  pluginDetails = undefined; pluginDirty = false;
+  $('plugin-title').textContent = '正在读取…'; $('plugin-detail-body').replaceChildren();
+  if (!$('plugin-detail').open) $('plugin-detail').showModal();
+  try { renderPlugin(await settingsRequest(`/api/plugins/${encodeURIComponent(id)}`)); }
+  catch (error) { $('plugin-detail-body').append(element('p', 'error-box', error.message)); }
+}
+function renderPlugin(detail) {
+  pluginDetails = detail; pluginDirty = false;
+  $('plugin-title').textContent = detail.title;
+  const body = $('plugin-detail-body'), meta = element('div', 'detail-meta');
+  meta.append(badge(detail.state), element('span', '', detail.kind === 'builtin' ? '内置 · 镜像内' : '外挂 · 挂载加载'));
+  body.replaceChildren(meta, element('p', 'mono', `${detail.id} · ${detail.module}`),
+    detailSection('依赖服务', detail.dependencies.join('、') || '无'), detailSection('提供服务', detail.provides.join('、') || '无'));
+  if (detail.settingsPage) {
+    const button = element('button', 'secondary detail-log-button', '打开插件配置');
+    button.type = 'button'; button.addEventListener('click', () => { $('plugin-detail').close(); showView(detail.settingsPage); }); body.append(button);
+  }
+  const form = element('form', 'plugin-form'), fields = element('div', 'form-grid');
+  if (detail.kind === 'external') {
+    const line = element('label', 'switch-line'), text = element('span');
+    text.append(element('strong', '', '启用插件'), element('small', '', detail.toggleReason || '保存并应用后生效；停用不删除插件文件或数据。'));
+    const enabled = element('input'); enabled.type = 'checkbox'; enabled.name = '_enabled'; enabled.checked = detail.enabled; enabled.disabled = !detail.canToggle;
+    line.append(text, enabled); form.append(line);
+  } else form.append(element('p', 'muted', '内置插件不开放启停操作；后续可按需要调整部署归属。'));
+  for (const [name, definition] of Object.entries(detail.schema?.properties ?? {})) {
+    const label = element('label', 'field'), required = detail.schema.required?.includes(name);
+    label.append(element('span', '', definition.title || name));
+    let input;
+    if (definition.enum) {
+      input = element('select');
+      if (!required) { const option = element('option', '', '默认'); option.value = ''; input.append(option); }
+      for (const item of definition.enum) { const option = element('option', '', String(item)); option.value = String(item); input.append(option); }
+    } else if (definition.type === 'array') { input = element('textarea'); input.rows = 3; }
+    else { input = element('input'); input.type = definition.writeOnly ? 'password' : definition.type === 'boolean' ? 'checkbox' : ['number', 'integer'].includes(definition.type) ? 'number' : 'text'; }
+    input.name = name;
+    if (definition.type === 'boolean') input.checked = detail.config[name] ?? definition.default ?? false;
+    else input.value = definition.writeOnly ? '' : definition.type === 'array' ? (detail.config[name] ?? definition.default ?? []).join('\n') : detail.config[name] ?? definition.default ?? '';
+    if (definition.writeOnly) { input.autocomplete = 'new-password'; input.placeholder = detail.secretConfigured[name] ? '已有配置，留空保留' : '尚未配置'; }
+    if (required && !definition.writeOnly) input.required = true;
+    if (definition.minimum !== undefined) input.min = definition.minimum;
+    if (definition.maximum !== undefined) input.max = definition.maximum;
+    if (definition.type === 'integer') input.step = '1'; else if (definition.type === 'number') input.step = 'any';
+    if (definition.maxLength !== undefined) input.maxLength = definition.maxLength;
+    label.append(input); if (definition.description) label.append(element('small', '', definition.description)); fields.append(label);
+  }
+  if (fields.children.length) form.append(fields);
+  if (!detail.schema && !detail.settingsPage) form.append(element('p', 'muted', '该插件尚未声明可编辑的配置项。'));
+  if (detail.canToggle || detail.schema) {
+    const footer = element('div', 'form-footer'), message = element('p', 'muted', '保存后应用配置生效。'), save = element('button', 'primary', '保存插件设置');
+    save.type = 'submit'; message.setAttribute('role', 'status'); footer.append(message, save); form.append(footer);
+    form.addEventListener('input', () => { pluginDirty = true; message.textContent = '有未保存的修改。'; });
+    form.addEventListener('change', () => { pluginDirty = true; message.textContent = '有未保存的修改。'; });
+    form.addEventListener('submit', async event => {
+      event.preventDefault(); save.disabled = true;
+      const payload = { revision: detail.revision };
+      if (detail.canToggle) payload.enabled = form.elements.namedItem('_enabled').checked;
+      if (detail.schema) {
+        payload.config = {};
+        for (const [name, definition] of Object.entries(detail.schema.properties)) {
+          const input = form.elements.namedItem(name);
+          if (definition.type === 'boolean') payload.config[name] = input.checked;
+          else if (definition.writeOnly) { if (input.value.trim()) payload.config[name] = input.value.trim(); }
+          else if (input.value !== '') payload.config[name] = definition.type === 'array' ? input.value.split(/\r?\n/).map(item => item.trim()).filter(Boolean)
+            : ['number', 'integer'].includes(definition.type) ? Number(input.value) : input.value;
+        }
+      }
+      try {
+        const result = await settingsRequest(`/api/plugins/${encodeURIComponent(detail.id)}`, payload);
+        pluginDirty = false; fillSettings(result); renderPlugin(result.plugin);
+        $('plugin-detail').close(); showView('plugins');
+      } catch (error) { message.textContent = error.message; message.className = 'form-error'; save.disabled = false; }
+    });
+  }
+  body.append(form);
+}
+$('close-plugin').addEventListener('click', () => $('plugin-detail').close());
+$('plugin-detail').addEventListener('close', () => { pluginDetails = undefined; pluginDirty = false; });
 
 poll();
 loadSettings();

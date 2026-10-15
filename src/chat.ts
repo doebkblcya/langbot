@@ -29,6 +29,13 @@ export function assemble(persona: string, history: ModelMessage[], current: Mess
 
 async function executeTurn(ctx: Context, config: Config, turn: Turn, parent: AbortSignal, queuedAt: number): Promise<void> {
   const signal = AbortSignal.any([parent, AbortSignal.timeout(config.limits.turnTimeoutMs)]);
+  try { await runTurn(ctx, config, turn, signal, queuedAt); }
+  catch (error) {
+    if (code(error) === 'cancelled' && signal.aborted && !parent.aborted) throw new Failure('turn_timeout');
+    throw error;
+  }
+}
+async function runTurn(ctx: Context, config: Config, turn: Turn, signal: AbortSignal, queuedAt: number): Promise<void> {
   ctx.store.state(turn.id, 'running');
   log(ctx, 'turn_started', turn.id, 'scheduler', { ...messageLog(turn.message), waitMs: elapsed(queuedAt) });
   const tools = ctx.tools.schemas();
@@ -112,14 +119,21 @@ export const chatPlugin: Plugin.Object<Config> = {
       const queuedAt = performance.now();
       log(ctx, 'trigger_matched', turn.id, 'trigger', { ...messageLog(message), reason });
       log(ctx, 'turn_queued', turn.id, 'scheduler', messageLog(message));
-      const job = ctx.scheduler.enqueue(message.session, queueSignal => executeTurn(ctx, config, turn, AbortSignal.any([queueSignal, controller.signal]), queuedAt))
-        .catch(error => {
-          const failure = code(error);
-          const state = error instanceof Failure && error.unknownOutcome ? 'unknown' : failure === 'queue_expired' ? 'expired' : failure === 'cancelled' ? 'cancelled' : 'failed';
-          try { ctx.store.state(turn.id, state, failure); }
-          catch { log(ctx, 'state_persistence_failed', turn.id); }
-          log(ctx, failure, turn.id, 'error', { errorCode: failure, durationMs: elapsed(queuedAt), state, level: 'error' });
-        }).finally(() => { jobs.delete(job); });
+      const settle = async (error: unknown) => {
+        const failure = code(error);
+        const state = error instanceof Failure && error.unknownOutcome ? 'unknown' : failure === 'queue_expired' ? 'expired' : failure === 'cancelled' ? 'cancelled' : 'failed';
+        try { ctx.store.state(turn.id, state, failure); }
+        catch { log(ctx, 'state_persistence_failed', turn.id); }
+        log(ctx, failure, turn.id, 'error', { errorCode: failure, durationMs: elapsed(queuedAt), state, level: 'error' });
+        if (!controller.signal.aborted) {
+          try { await ctx.get('faultFeedback')?.notify(turn, failure, controller.signal); }
+          catch { log(ctx, 'feedback_failed', turn.id, 'feedback'); }
+        }
+      };
+      // Settle runtime failures before releasing this session to its next reply.
+      const job = ctx.scheduler.enqueue(message.session, queueSignal =>
+        executeTurn(ctx, config, turn, AbortSignal.any([queueSignal, controller.signal]), queuedAt).catch(settle))
+        .catch(settle).finally(() => { jobs.delete(job); });
       jobs.add(job);
     });
     ctx.effect(() => stop);

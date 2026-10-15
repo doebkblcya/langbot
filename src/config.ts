@@ -12,6 +12,7 @@ export interface PluginConfig {
   directory: string;
   entries: PluginEntry[];
   chat?: string;
+  trigger?: string;
 }
 
 export interface Config {
@@ -21,6 +22,8 @@ export interface Config {
   triggerWords: string[];
   groupIds: string[];
   chatEnabled: boolean;
+  trigger?: { privateReply: boolean; groupMention: boolean; groupKeywords: boolean; words: string[] };
+  failureFeedback?: { enabled: boolean };
   plugins?: PluginConfig;
   logging?: { content?: boolean; previewChars?: number };
   model: { baseUrl: string; name: string; thinking: boolean; timeoutMs: number; maxOutputTokens: number; retries: number;
@@ -38,12 +41,17 @@ const schema = {
     database: text, persona: text,
     triggerWords: { type: 'array', maxItems: 100, uniqueItems: true, items: { type: 'string', minLength: 1, maxLength: 100 } },
     groupIds: { type: 'array', maxItems: 1000, uniqueItems: true, items: identifier }, chatEnabled: { type: 'boolean' },
+    trigger: { type: 'object', additionalProperties: false, required: ['privateReply', 'groupMention', 'groupKeywords', 'words'], properties: {
+      privateReply: { type: 'boolean' }, groupMention: { type: 'boolean' }, groupKeywords: { type: 'boolean' },
+      words: { type: 'array', maxItems: 100, uniqueItems: true, items: { type: 'string', minLength: 1, maxLength: 100 } },
+    } },
+    failureFeedback: { type: 'object', additionalProperties: false, required: ['enabled'], properties: { enabled: { type: 'boolean' } } },
     logging: { type: 'object', additionalProperties: false, properties: {
       content: { type: 'boolean' },
       previewChars: { type: 'integer', minimum: 1, maximum: 1000 },
     } },
     plugins: { type: 'object', additionalProperties: false, required: ['directory', 'entries'], properties: {
-      directory: text, chat: { type: 'string', pattern: '^[a-zA-Z0-9_-]{1,64}$' },
+      directory: text, chat: { type: 'string', pattern: '^[a-zA-Z0-9_-]{1,64}$' }, trigger: { type: 'string', pattern: '^[a-zA-Z0-9_-]{1,64}$' },
       entries: { type: 'array', maxItems: 100, items: {
         type: 'object', additionalProperties: false, required: ['id', 'module'], properties: {
           id: { type: 'string', pattern: '^[a-zA-Z0-9_-]{1,64}$' }, module: text,
@@ -80,6 +88,7 @@ export function validateConfig(raw: unknown): Config {
     if (ids.includes('xiaolang-adapter')) throw new Failure('reserved_plugin_id');
     if (new Set(ids).size !== ids.length) throw new Failure('duplicate_plugin_id');
     if (raw.plugins.chat && !raw.plugins.entries.some(entry => entry.id === raw.plugins!.chat && entry.enabled !== false)) throw new Failure('invalid_chat_plugin');
+    if (raw.plugins.trigger && !raw.plugins.entries.some(entry => entry.id === raw.plugins!.trigger && entry.enabled !== false)) throw new Failure('invalid_trigger_plugin');
   }
   return raw;
 }

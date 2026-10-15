@@ -41,8 +41,9 @@ export function createHandler(inspection, configuration) {
     let url;
     try { url = new URL(request.url, `http://${host}`); } catch { return send(400, { error: 'invalid_request' }); }
     try {
-      const writeRoute = /^\/api\/settings\/(model|qq|apply)$/.exec(url.pathname);
-      if (request.method === 'POST' && writeRoute) {
+      const writeRoute = /^\/api\/settings\/(model|qq|trigger|apply)$/.exec(url.pathname);
+      const pluginRoute = /^\/api\/plugins\/([a-zA-Z0-9_-]{1,64})$/.exec(url.pathname);
+      if (request.method === 'POST' && (writeRoute || pluginRoute)) {
         if (!configuration) return send(503, { error: 'configuration_unavailable' });
         const token = request.headers['x-xiaolang-token'];
         if (request.headers.origin !== `http://${host}` || typeof token !== 'string'
@@ -51,6 +52,7 @@ export function createHandler(inspection, configuration) {
         }
         if (request.headers['content-type'] !== 'application/json') { request.resume?.(); return send(415, { error: 'json_required' }); }
         const input = await readJson(request);
+        if (pluginRoute) return send(200, { ...await configuration.savePlugin(pluginRoute[1], input), writeToken });
         if (writeRoute[1] === 'apply') {
           if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).length !== 1 || typeof input.revision !== 'string') throw new Error('invalid_settings_request');
           await configuration.apply(input.revision); return send(202, { restarting: true });
@@ -58,6 +60,7 @@ export function createHandler(inspection, configuration) {
         return send(200, { ...await configuration.save(writeRoute[1], input), writeToken });
       }
       if (request.method !== 'GET') { request.resume?.(); return send(405, { error: 'method_not_allowed' }); }
+      if (pluginRoute) return configuration ? send(200, await configuration.plugin(pluginRoute[1])) : send(503, { error: 'configuration_unavailable' });
       if (url.pathname === '/api/settings') {
         return configuration ? send(200, { ...await configuration.view(), writeToken }) : send(503, { error: 'configuration_unavailable' });
       }
@@ -82,9 +85,12 @@ export function createHandler(inspection, configuration) {
       return send(404, { error: 'not_found' });
     } catch (error) {
       const failure = error.code ?? error.message;
-      const invalid = ['invalid_settings_request', 'invalid_saved_settings', 'invalid_config', 'invalid_qq_config', 'invalid_url', 'invalid_secret', 'invalid_json', 'persona_exceeds_context'];
+      const invalid = ['invalid_settings_request', 'invalid_saved_settings', 'invalid_config', 'invalid_qq_config', 'invalid_url', 'invalid_secret', 'invalid_json', 'persona_exceeds_context', 'trigger_configuration_unavailable'];
       if (invalid.includes(failure)) return send(400, { error: failure });
       if (['settings_conflict', 'settings_busy', 'chat_busy', 'no_pending_settings'].includes(failure)) return send(409, { error: failure });
+      if (failure === 'plugin_not_found') return send(404, { error: failure });
+      if (['plugin_required', 'plugin_not_configurable'].includes(failure)) return send(409, { error: failure });
+      if (failure === 'invalid_plugin_config') return send(400, { error: failure });
       if (failure === 'body_too_large') return send(413, { error: failure });
       return send(error.message === 'invalid_query' || error.message === 'invalid_log_cursor' || error.code === 'invalid_history_query' ? 400 : 500,
         { error: error.message === 'invalid_query' || error.message === 'invalid_log_cursor' || error.code === 'invalid_history_query' ? 'invalid_query' : 'panel_query_failed' });

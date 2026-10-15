@@ -1,5 +1,5 @@
-import { realpath, stat } from 'node:fs/promises';
-import { extname, isAbsolute, join, relative, resolve } from 'node:path';
+import { readFile, realpath, stat } from 'node:fs/promises';
+import { dirname, extname, isAbsolute, join, relative, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { FiberState } from 'cordis';
 import type { Context } from 'cordis';
@@ -58,6 +58,21 @@ export async function configurePlugins(ctx: Context, settings: PluginConfig, cha
   }
   const rows: EntryOptions[] = [];
   for (const entry of settings.entries) {
+    // A sidecar lets disabled file plugins describe configuration without executing their code.
+    if (ctx.get('configuration') && entry.module.startsWith('./')) {
+      const source = resolve(directory, entry.module);
+      if (contains(directory, source)) {
+        try {
+          const manifest = await realpath(join(dirname(source), 'xiaolang.plugin.json'));
+          if (!contains(directory, manifest)) return fail(ctx, 'plugin_invalid_path', entry.id);
+          const raw: unknown = JSON.parse(await readFile(manifest, 'utf8'));
+          const schema = object(raw)?.configSchema;
+          if (object(schema)) ctx.configuration.registerPlugin(entry.id, schema as Record<string, unknown>);
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== 'ENOENT') return fail(ctx, 'invalid_plugin_config_schema', entry.id);
+        }
+      }
+    }
     if (disabled(entry, settings, chatEnabled)) {
       rows.push({ id: entry.id, name: entry.module, disabled: true, config: entry.config ?? {} });
       continue;
@@ -67,6 +82,7 @@ export async function configurePlugins(ctx: Context, settings: PluginConfig, cha
     try { exports = await ctx.loader.import(name); }
     catch { return fail(ctx, 'plugin_import_failed', entry.id); }
     const module = object(exports);
+    if (ctx.get('configuration') && object(module?.xiaolangConfig)) ctx.configuration.registerPlugin(entry.id, module!.xiaolangConfig as Record<string, unknown>);
     if (module?.xiaolangApiVersion !== undefined && module.xiaolangApiVersion !== 1) return fail(ctx, 'plugin_api_incompatible', entry.id);
     const plugin: unknown = ctx.loader.unwrapExports(exports);
     if (typeof plugin !== 'function' && typeof object(plugin)?.apply !== 'function') return fail(ctx, 'plugin_invalid_export', entry.id);

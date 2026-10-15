@@ -1,0 +1,9 @@
+{
+  "configSchema": {
+    "type": "object",
+    "properties": {
+      "greeting": { "type": "string", "title": "问候语", "maxLength": 100, "default": "你好" }
+    },
+    "additionalProperties": false
+  }
+}

@@ -157,3 +157,5 @@ dialog{padding:20px}
 @media(max-width:650px){nav{flex-wrap:wrap}.form-grid{grid-template-columns:1fr;gap:18px}.field.full{grid-column:auto}.form-footer,.settings-banner{align-items:flex-start;flex-direction:column}.form-footer p{max-width:100%}}
 
 .form-actions{display:flex;gap:10px;align-items:center}
+
+.trigger-switches{margin:20px 0 26px}.switch-line{display:flex;justify-content:space-between;align-items:center;gap:18px;padding:18px 0;border-bottom:1px solid #edf1ed}.switch-line strong{display:block;font-size:13px;font-weight:550}.switch-line small{display:block;color:#89988e;font-size:11px;margin-top:5px}.switch-line input{width:18px;height:18px;accent-color:#3d7357}.plugin-table th:first-child{width:24%}.plugin-table th:nth-child(2){width:31%}.plugin-table td .module{margin-top:5px}.plugin-table td strong{font-weight:550}

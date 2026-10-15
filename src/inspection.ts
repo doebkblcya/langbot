@@ -1,11 +1,11 @@
-import { FiberState } from 'cordis';
 import type { Plugin } from 'cordis';
 import type { Config } from './config.js';
-import type { LogItem } from './contracts.js';
+import type { LogItem, PluginInfo } from './contracts.js';
 
-export const inspectionPlugin: Plugin.Object<Config> = {
+export const inspectionPlugin: Plugin.Object<{ config: Config; plugins: () => PluginInfo[] }> = {
   name: 'xiaolang-inspection', inject: ['historyReader'],
-  apply(ctx, config) {
+  apply(ctx, options) {
+    const { config } = options;
     const started = Date.now();
     let state = 'starting';
     let connection = 'starting';
@@ -28,9 +28,7 @@ export const inspectionPlugin: Plugin.Object<Config> = {
         return { started, uptimeMs: Math.max(0, Date.now() - started), state, connection, lastMessage,
           model: config.model.name, platform: ctx.get('adapter')?.platform, chatEnabled: !!ctx.get('chat'),
           memoryBytes: process.memoryUsage().rss, counts: ctx.historyReader.counts(),
-          plugins: (config.plugins?.entries ?? []).map(entry => ({ id: entry.id, module: entry.module,
-            state: entry.enabled === false || (entry.id === config.plugins?.chat && !config.chatEnabled) ? 'disabled'
-              : ctx.get('loader')?.store[entry.id]?.fiber?.state === FiberState.ACTIVE ? 'active' : 'pending' })),
+          plugins: structuredClone(options.plugins()),
         };
       },
       recent: (limit, before, failures) => ctx.historyReader.recent(limit, before, failures),

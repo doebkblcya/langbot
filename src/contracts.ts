@@ -64,6 +64,7 @@ export interface Store {
   confirmSend(turn: Turn, part: number, platformId: string, text: string, protocol: ModelMessage[], platformIds: string[]): void;
   toolStart(turn: string, call: ToolCall): void;
   toolEnd(turn: string, call: string, state: string, result: string): void;
+  prepareFeedback(turn: string, text: string): boolean;
 }
 export interface Scheduler {
   enqueue(key: string, run: (signal: AbortSignal) => Promise<void>): Promise<void>;
@@ -85,7 +86,9 @@ export interface Tools {
 }
 export interface Output {
   send(turn: Turn, text: string, protocol: ModelMessage[], signal: AbortSignal): Promise<void>;
+  feedback?(turn: Turn, text: string, signal: AbortSignal): Promise<boolean>;
 }
+export interface FaultFeedback { notify(turn: Turn, failure: string, signal: AbortSignal): Promise<void> }
 export interface Chat { idle(): Promise<void>; stop(): Promise<void> }
 export interface Log {
   code: string; time?: string; level?: 'info' | 'warn' | 'error';
@@ -101,7 +104,7 @@ export interface TurnView {
   input: string; reply: string; inputTruncated: boolean; replyTruncated: boolean;
 }
 export interface TurnDetail extends TurnView {
-  sends: { part: number; text: string; state: string; receipt: string | null }[];
+  sends: { part: number; kind?: 'reply' | 'feedback'; text: string; state: string; receipt: string | null }[];
   tools: { name: string; state: string }[];
 }
 export interface HistoryReader {
@@ -110,11 +113,12 @@ export interface HistoryReader {
   detail(id: string): TurnDetail | undefined;
 }
 export interface LogItem { seq: number; entry: Log }
+export interface PluginInfo { id: string; title: string; module: string; kind: 'builtin' | 'external'; state: string; dependencies: string[]; provides: string[] }
 export interface Inspection {
   status(): {
     started: number; uptimeMs: number; state: string; connection: string; lastMessage?: string;
     model: string; platform?: string; chatEnabled: boolean; memoryBytes: number;
-    counts: Record<string, number>; plugins: { id: string; module: string; state: string }[];
+    counts: Record<string, number>; plugins: PluginInfo[];
   };
   recent: HistoryReader['recent']; detail: HistoryReader['detail'];
   logs(after?: number): { items: LogItem[]; cursor: number; reset: boolean };
@@ -122,8 +126,11 @@ export interface Inspection {
 
 export interface Configuration {
   view(): Promise<Record<string, unknown>>;
-  save(section: 'model' | 'qq', input: unknown): Promise<Record<string, unknown>>;
+  save(section: 'model' | 'qq' | 'trigger', input: unknown): Promise<Record<string, unknown>>;
   apply(revision: string): Promise<void>;
+  registerPlugin(id: string, schema: Fields): void;
+  plugin(id: string): Promise<Record<string, unknown>>;
+  savePlugin(id: string, input: unknown): Promise<Record<string, unknown>>;
 }
 
 declare module 'cordis' {
@@ -141,6 +148,7 @@ declare module 'cordis' {
     historyReader: HistoryReader;
     inspection: Inspection;
     configuration: Configuration;
+    faultFeedback: FaultFeedback;
   }
   interface Events {
     'xiaolang/message'(message: Message): void;

@@ -11,6 +11,30 @@ export function splitText(text: string, limit: number): string[] {
 export class Sender implements Output {
   constructor(private store: Store, private adapter: Adapter, private limit: number, private report: (entry: Log) => void = () => {}) {}
   private emit(entry: Log): void { try { this.report(entry); } catch { /* isolated observer */ } }
+  async feedback(turn: Turn, text: string, signal: AbortSignal): Promise<boolean> {
+    check(signal);
+    if (turn.message.platform !== this.adapter.platform || turn.message.account !== this.adapter.account) throw new Failure('adapter_target_mismatch');
+    if (!text.trim() || Array.from(text).length > Math.min(this.limit, this.adapter.capabilities.maxTextChars)) throw new Failure('feedback_too_long');
+    if (!this.store.prepareFeedback(turn.id, text)) return false;
+    const details = { ...messageLog(turn.message), turn: turn.id, stage: 'feedback' };
+    this.emit({ ...details, code: 'feedback_started', preview: text });
+    let receipt: string;
+    try {
+      check(signal);
+      const response = await this.adapter.reply(turn.message, text, 0, signal);
+      const value = id(response.id);
+      if (!value) throw new Failure('send_invalid_receipt', true);
+      receipt = value;
+    } catch (error) {
+      const unknown = !(error instanceof Failure) || error.unknownOutcome;
+      this.store.sendState(turn.id, -1, unknown ? 'unknown' : 'failed');
+      this.emit({ ...details, code: unknown ? 'feedback_unknown' : 'feedback_failed', errorCode: code(error) });
+      return false;
+    }
+    this.store.sendState(turn.id, -1, 'sent', receipt);
+    this.emit({ ...details, code: 'feedback_sent', receipt });
+    return true;
+  }
   async send(turn: Turn, text: string, protocol: ModelMessage[], signal: AbortSignal): Promise<void> {
     check(signal);
     if (!text.trim()) throw new Failure('empty_reply');

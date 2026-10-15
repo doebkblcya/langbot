@@ -102,6 +102,14 @@ export class SqliteStore implements Store {
   toolEnd(turn: string, call: string, state: string, result: string): void {
     this.db.prepare('UPDATE tools SET state=?,result=? WHERE turn_id=? AND call_id=?').run(state, result, turn, call);
   }
+  prepareFeedback(turn: string, text: string): boolean {
+    // Reserved part -1 is a diagnostic notice, never an assistant answer in model history.
+    // Claim once durably, and never append a notice after any normal send intent exists.
+    const result = this.db.prepare(`INSERT INTO sends(turn_id,part,text,state)
+      SELECT ?,-1,?,'sending' WHERE NOT EXISTS (SELECT 1 FROM sends WHERE turn_id=?)
+      ON CONFLICT(turn_id,part) DO NOTHING`).run(turn, text, turn);
+    return Number(result.changes) === 1;
+  }
   inspectTurn(id: string) { return this.db.prepare('SELECT * FROM turns WHERE id=?').get(id); }
   inspectSends(id: string) { return this.db.prepare('SELECT * FROM sends WHERE turn_id=? ORDER BY part').all(id); }
   inspectTools(id: string) { return this.db.prepare('SELECT * FROM tools WHERE turn_id=?').all(id); }
@@ -134,7 +142,8 @@ export class SqliteStore implements Store {
     if (!row) return;
     return { ...this.view(row, 10000),
       sends: this.db.prepare('SELECT part,text,state,platform_id FROM sends WHERE turn_id=? ORDER BY part').all(id)
-        .map(send => ({ part: Number(send.part) + 1, text: Array.from(String(send.text)).slice(0, 4000).join(''), state: String(send.state), receipt: send.platform_id === null ? null : String(send.platform_id) })),
+        .map(send => ({ part: Number(send.part) < 0 ? 1 : Number(send.part) + 1, kind: Number(send.part) < 0 ? 'feedback' as const : 'reply' as const,
+          text: Array.from(String(send.text)).slice(0, 4000).join(''), state: String(send.state), receipt: send.platform_id === null ? null : String(send.platform_id) })),
       tools: this.db.prepare('SELECT name,state FROM tools WHERE turn_id=? ORDER BY rowid').all(id).map(tool => ({ name: String(tool.name), state: String(tool.state) })),
     };
   }

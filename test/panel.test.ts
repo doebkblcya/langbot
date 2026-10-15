@@ -8,9 +8,9 @@ import { Failure } from '../src/errors.js';
 import { config, event, FakeAdapter, FakeModel } from './fixtures.js';
 import type { Inspection } from '../src/contracts.js';
 
-async function handler(inspection: Inspection) {
+async function handler(inspection: Inspection, allowedHosts: string[] = []) {
   const module = await import(pathToFileURL(resolve('examples/plugins/panel/index.mjs')).href);
-  const handle = module.createHandler(inspection);
+  const handle = module.createHandler(inspection, undefined, { allowedHosts });
   return async (url: string, method = 'GET', headers: Record<string, string> = {}) => {
     let status = 0, output = '', responseHeaders: Record<string, string> = {};
     // No HTTP listener on Mac: exercise the request handler with in-memory messages.
@@ -87,6 +87,10 @@ test('panel handler enforces local Host, same-origin, read-only methods and boun
   assert.equal((await request('/api/status', 'GET', { host: 'attacker.example:18080' })).status, 403);
   assert.equal((await request('/api/status', 'GET', { origin: 'https://attacker.example' })).status, 403);
   assert.equal((await request('/api/status', 'GET', { 'sec-fetch-site': 'cross-site' })).status, 403);
+  const lan = await handler(app.ctx.inspection, ['192.168.31.97:18080']);
+  assert.equal((await lan('/api/status', 'GET', { host: '192.168.31.97:18080' })).status, 200);
+  assert.equal((await lan('/api/status', 'GET', { host: '192.168.31.98:18080' })).status, 403);
+  assert.equal((await lan('/api/status', 'GET', { host: '192.168.31.97:18080', origin: 'https://attacker.example' })).status, 403);
   assert.equal((await request('/api/status', 'POST')).status, 405);
   for (const url of ['/api/turns?limit=0', '/api/turns?limit=101', '/api/turns?before=0', '/api/logs?after=-1', '/api/turns?failures=bad']) assert.equal((await request(url)).status, 400);
   for (const url of ['/.env', '/../../config.local.json', '/api/config', '/api/turns/../../.env']) assert.equal((await request(url)).status, 404);

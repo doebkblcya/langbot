@@ -2,7 +2,7 @@
 
 个人定制、轻量克制、拟人化的 QQ 聊天机器人。使用 **TypeScript＋Cordis 4** 自行编写，通过独立接入插件连接 **QQ 官方机器人**。OneBot／NapCat 接入实现已移除。
 
-文字主链路已部署在美国 VPS 的 Docker 中，当前连接 QQ 官方 WebSocket **正式环境**。私聊文字闭环已验证，用户已反馈非 @ 群消息可以收到；九个模块尚未全部完成。现在先整理方向，再集中讨论主链路微调。
+文字主链路已从美国 VPS 迁移到飞牛 NAS 的 Docker 中，当前连接 QQ 官方 WebSocket **正式环境**。私聊文字闭环已验证，用户已反馈非 @ 群消息可以收到；九个模块尚未全部完成。现在先整理方向，再集中讨论主链路微调。
 
 ## 文档入口
 
@@ -46,17 +46,17 @@ XIAOLANG_CONFIG=config.example.json node dist/src/main.js --check-config
 
 ## Docker 运行
 
-用户已批准独立的小狼 Docker 部署和联调。因 NAS 故障，当前改在美国 VPS 验证；NAS 操作暂停。Linux 镜像、无网络容器验证及 VPS 的 QQ 连接／真实模型调用已通过。
+用户已批准独立的小狼 Docker 部署、NAS 迁移和联调。当前 NAS 已完成 QQ 正式连接与真实消息收发，VPS 停止保留回退；Mac 不运行机器人。
 
-1. 当前 VPS 目录为 `/home/doebk/xiaolang`，Compose 配置为 `compose.yml`，项目及容器名为 `xiaolang`。NAS 此前仅创建 `/vol1/1000/sys/docker/xiaolang` 目录并上传镜像，导入未确认、未启动容器；现有 AstrBot／NapCat 不改动。
+1. 当前 NAS 目录为 `/vol1/1000/sys/docker/xiaolang`，Compose 配置为 `compose.yml`，项目及容器名为 `xiaolang`。VPS 原目录 `/home/doebk/xiaolang` 保留，但容器已停止；现有 AstrBot／NapCat 不改动。
 2. 将 `config.example.json` 复制为 `config.local.json`，填写 `adapter.config.appId`。仓库示例与当前项目均使用 `environment: "production"`。沙箱按后台配置测试成员和群，两种环境的历史命名空间隔离。
 3. 将 `.env.example` 复制为 `.env`，填入 `DEEPSEEK_API_KEY` 和 `QQBOT_APP_SECRET`；真实密钥不进入 Git、镜像或普通日志。
 4. `groupIds` 填 QQ 官方事件中的群 OpenID，不是普通 QQ 群号；空列表表示所有平台允许接收的群。`groupMessages` 是能力声明，不会替平台授予权限。用户已反馈非 @ 群消息可收到，示例使用 `"all"`；现有实例可以在 QQ 接入页修改此声明。
-5. 当前插件使用 WebSocket，由容器向 QQ 官方网关发起连接，不需要 NapCat 或公网回调端口。当前应用已在 VPS 正式环境成功鉴权并就绪；具体事件权限按实际收包确认。没有实现 Webhook 服务。
+5. 当前插件使用 WebSocket，由容器向 QQ 官方网关发起连接，不需要 NapCat 或公网回调端口。当前应用已在 NAS 正式环境成功鉴权并就绪；具体事件权限按实际收包确认。没有实现 Webhook 服务。
 6. `main` 每次推送通过全部检查后，Actions 导出 `linux/amd64` 镜像和 SHA-256 校验文件，保存为保留 7 天的 Artifact，不创建 Release 或发布到镜像仓库。镜像标签为 `xiaolang:<完整提交 SHA>`；导入目标 Docker 后在 `.env` 的 `XIAOLANG_IMAGE` 填写该标签。将 `compose.example.yml` 作为项目的 Compose 配置使用，无需在目标服务器重新构建。
-7. 宿主机 `data/` 挂载在 `/app/data`，`plugins/` 挂载在 `/app/plugins`，配置只读挂载；目录须允许容器用户 UID/GID 1000 读写，同一数据库只运行一个应用实例。容器内存上限 512 MiB，日志最多 3 个 10 MiB 文件。只读面板映射为 `127.0.0.1:18080:18080`，QQ 接入没有入站端口。若自行在 Linux 构建镜像，可使用 `docker build -t xiaolang:local .`。
+7. 宿主机 `data/` 挂载在 `/app/data`，`plugins/` 挂载在 `/app/plugins`，配置只读挂载；目录须允许容器用户 UID/GID 1000 读写，同一数据库只运行一个应用实例。容器内存上限 512 MiB，日志最多 3 个 10 MiB 文件。NAS 面板仅绑定内网 IP `192.168.31.97:18080:18080`，QQ 接入没有入站端口。若自行在 Linux 构建镜像，可使用 `docker build -t xiaolang:local .`。
 
-当前运行镜像、环境、验证边界和未完成项统一以 [实现进度](Docs/实现进度.md) 为准，避免在多处记录不同状态。NAS 尚未完成部署。
+当前运行镜像、环境、验证边界和未完成项统一以 [实现进度](Docs/实现进度.md) 为准，避免在多处记录不同状态。
 
 临时人设、FIFO 排队、上下文字符预算、模型非思考模式、重试次数和超时等是第一版的可改默认值，不视为用户逐项确认。没有开启主动插话策略。
 
@@ -68,15 +68,17 @@ XIAOLANG_CONFIG=config.example.json node dist/src/main.js --check-config
 { "id": "panel", "module": "./panel/index.mjs", "config": { "host": "0.0.0.0", "port": 18080 } }
 ```
 
-这里的 `0.0.0.0` 是容器内部监听地址；Compose 的宿主端口必须保持 `127.0.0.1:18080:18080`。Mac 打开 SSH 转发后访问 http://127.0.0.1:18080：
+这里的 `0.0.0.0` 是容器内部监听地址。当前 NAS 使用局域网访问 http://192.168.31.97:18080/，Compose 绑定 `192.168.31.97:18080:18080`，面板插件配置额外设置 `allowedHosts: ["192.168.31.97:18080"]`。默认只允许本机 Host；`allowedHosts` 只按精确地址放行，不使用通配符。
+
+原 VPS 的本机访问方案使用 `127.0.0.1:18080:18080` 和 SSH 转发（VPS 小狼目前停止）：
 
 ```sh
 ssh -N -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 -L 127.0.0.1:18080:127.0.0.1:18080 RacknerdUS
 ```
 
-后台通过 SSH 登录控制访问；HTTP 限制本机 Host 与同源请求，写操作还检查页面令牌和 JSON 请求体。模型、QQ、触发规则及声明过的外挂插件配置可编辑；内置插件不开放启停，外挂启停检查依赖，管理入口受保护。页面全部使用本地静态资源，无前端框架或第三方 CDN。每 2 秒刷新运行状态与日志；聊天按轮次分页，支持异常筛选、分段回执和关联过程日志。未触发的普通消息可以在过程日志中查看，不进入聊天轮次列表。密钥可以替换但不回显，留空保留原值；不提供任意 SQL 或命令执行接口。
+VPS 后台通过 SSH 登录控制访问；当前 NAS 面板提供给可信局域网设备，未提供独立账号登录。HTTP 限制本机或显式允许的 Host 与同源请求，写操作还检查页面令牌和 JSON 请求体。模型、QQ、触发规则及声明过的外挂插件配置可编辑；内置插件不开放启停，外挂启停检查依赖，管理入口受保护。页面全部使用本地静态资源，无前端框架或第三方 CDN。每 2 秒刷新运行状态与日志；聊天按轮次分页，支持异常筛选、分段回执和关联过程日志。未触发的普通消息可以在过程日志中查看，不进入聊天轮次列表。密钥可以替换但不回显，留空保留原值；不提供任意 SQL 或命令执行接口。
 
-面板依赖主链路的 `inspection` 只读服务；不直接操作 SQLite。聊天来自持久化记录，日志仅缓存本次启动的最近 500 条。重启后页面会自动重连，日志缓存重新开始。改变页面或 HTTP 展示逻辑后更新外挂文件并重启即可；改变主链路查询能力才需要更新镜像。Mac 的离线测试不会启动 HTTP 监听；实际 HTTP 验证在 Linux 容器与 VPS 执行。
+面板依赖主链路的 `inspection` 只读服务；不直接操作 SQLite。聊天来自持久化记录，日志仅缓存本次启动的最近 500 条。重启后页面会自动重连，日志缓存重新开始。改变页面或 HTTP 展示逻辑后更新外挂文件并重启即可；改变主链路查询能力才需要更新镜像。Mac 的离线测试不会启动 HTTP 监听；实际 HTTP 验证在 Linux 容器和运行宿主机执行。
 
 模型页支持 API 地址、模型、API Key、思考开关／强度、温度、Top P、输出 Token、请求超时、重试和停止词；QQ 页支持 AppID、AppSecret、正式／沙箱环境、群接收能力声明、连接超时和群 OpenID 范围，连接方式固定 WebSocket。参数范围按 [DeepSeek 官方文档](https://api-docs.deepseek.com/api/create-chat-completion/) 核对：温度仅非思考模式生效，Top P 与思考强度仅思考模式生效；已弃用的频率／存在惩罚不暴露。
 
@@ -92,7 +94,7 @@ ssh -N -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 -L 127.0.0.1:18080:
 
 ## 过程日志
 
-在 Mac 终端通过已有 SSH 配置登录 VPS，然后查看实时日志：
+当前在飞牛 Docker 面板中打开 `xiaolang` 容器的运行日志即可查看。原 VPS 的日志命令如下（容器目前已停止）：
 
 ```sh
 ssh RacknerdUS

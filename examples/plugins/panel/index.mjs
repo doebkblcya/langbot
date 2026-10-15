@@ -26,7 +26,9 @@ async function readJson(request) {
   try { return JSON.parse(Buffer.concat(chunks).toString('utf8')); }
   catch { throw new Error('invalid_json'); }
 }
-export function createHandler(inspection, configuration) {
+export function createHandler(inspection, configuration, options = {}) {
+  const allowedHosts = options.allowedHosts ?? [];
+  if (!Array.isArray(allowedHosts) || allowedHosts.some(host => typeof host !== 'string' || !/^[a-zA-Z0-9.-]+(?::[0-9]{1,5})?$/.test(host))) throw new Error('invalid_panel_config');
   const writeToken = randomBytes(24).toString('hex');
   return async (request, response) => {
     const send = (status, value, type = 'application/json; charset=utf-8') => {
@@ -34,7 +36,7 @@ export function createHandler(inspection, configuration) {
       response.end(type.startsWith('application/json') ? JSON.stringify(value) : value);
     };
     const host = request.headers.host ?? '';
-    if (!/^(?:127\.0\.0\.1|localhost|\[::1\])(?::[0-9]{1,5})?$/.test(host)) return send(403, { error: 'local_access_only' });
+    if (!/^(?:127\.0\.0\.1|localhost|\[::1\])(?::[0-9]{1,5})?$/.test(host) && !allowedHosts.includes(host)) return send(403, { error: 'local_access_only' });
     if ((request.headers.origin && request.headers.origin !== `http://${host}`)
       || (request.url?.startsWith('/api/') && request.headers['sec-fetch-site'] === 'cross-site')) return send(403, { error: 'same_origin_required' });
     if (!request.url || request.url.length > 2048) return send(400, { error: 'invalid_request' });
@@ -101,7 +103,7 @@ export async function apply(ctx, config = {}) {
   const host = config.host ?? '127.0.0.1';
   const port = config.port ?? 18080;
   if (!['127.0.0.1', '0.0.0.0'].includes(host) || !Number.isInteger(port) || port < 1 || port > 65535) throw new Error('invalid_panel_config');
-  const server = createServer({ maxHeaderSize: 8192 }, createHandler(ctx.inspection, ctx.get('configuration')));
+  const server = createServer({ maxHeaderSize: 8192 }, createHandler(ctx.inspection, ctx.get('configuration'), { allowedHosts: config.allowedHosts }));
   server.requestTimeout = 10000;
   server.headersTimeout = 10000;
   server.keepAliveTimeout = 5000;

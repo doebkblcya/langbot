@@ -27,6 +27,9 @@ export const inspectionPlugin: Plugin.Object<{ config: Config; plugins: () => Pl
       status() {
         return { started, uptimeMs: Math.max(0, Date.now() - started), state, connection, lastMessage,
           model: config.model.name, platform: ctx.get('adapter')?.platform, chatEnabled: !!ctx.get('chat'),
+          contextBudget: { unit: config.limits.contextTokens === undefined ? 'characters' : 'tokens',
+            max: config.limits.contextTokens ?? config.limits.contextChars,
+            recentMessages: config.memory?.enabled ? config.memory.recentMessages : config.limits.history },
           memoryBytes: process.memoryUsage().rss, counts: ctx.historyReader.counts(),
           plugins: structuredClone(options.plugins()),
         };

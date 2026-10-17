@@ -3,6 +3,7 @@ import { Ajv } from 'ajv';
 import { Failure } from './errors.js';
 import { memoryProperties } from './memory-config.js';
 import type { MemoryConfig } from './memory-config.js';
+import { textTokens } from './context-budget.js';
 
 export interface PluginEntry {
   id: string;
@@ -32,7 +33,7 @@ export interface Config {
   logging?: { content?: boolean; previewChars?: number };
   model: { baseUrl: string; name: string; thinking: boolean; timeoutMs: number; maxOutputTokens: number; retries: number;
     temperature?: number; topP?: number; reasoningEffort?: 'low' | 'high' | 'max'; stop?: string[] };
-  limits: { concurrency: number; queue: number; queueAgeMs: number; turnTimeoutMs: number; contextChars: number; history: number; steps: number; toolTimeoutMs: number; toolResultChars: number; replyChars: number };
+  limits: { concurrency: number; queue: number; queueAgeMs: number; turnTimeoutMs: number; contextTokens?: number; contextChars?: number; history: number; steps: number; toolTimeoutMs: number; toolResultChars: number; replyChars: number };
 }
 const positive = { type: 'integer', minimum: 1, maximum: 86_400_000 };
 const text = { type: 'string', minLength: 1, maxLength: 20_000 };
@@ -73,8 +74,10 @@ const schema = {
       stop: { type: 'array', maxItems: 16, uniqueItems: true, items: { type: 'string', minLength: 1, maxLength: 200 } },
     } },
     limits: { type: 'object', additionalProperties: false,
-      required: ['concurrency', 'queue', 'queueAgeMs', 'turnTimeoutMs', 'contextChars', 'history', 'steps', 'toolTimeoutMs', 'toolResultChars', 'replyChars'],
+      required: ['concurrency', 'queue', 'queueAgeMs', 'turnTimeoutMs', 'history', 'steps', 'toolTimeoutMs', 'toolResultChars', 'replyChars'],
+      anyOf: [{ required: ['contextTokens'] }, { required: ['contextChars'] }],
       properties: { concurrency: { ...positive, maximum: 32 }, queue: { ...positive, maximum: 1000 }, queueAgeMs: positive, turnTimeoutMs: positive,
+        contextTokens: { ...positive, minimum: 1000, maximum: 1_000_000 },
         contextChars: { ...positive, minimum: 1000, maximum: 100_000 }, history: { ...positive, maximum: 1000 }, steps: { ...positive, maximum: 20 },
         toolTimeoutMs: positive, toolResultChars: { ...positive, minimum: 256, maximum: 20000 }, replyChars: { ...positive, maximum: 4000 } },
     },
@@ -88,7 +91,8 @@ export function validateConfig(raw: unknown): Config {
   catch { throw new Failure('invalid_url'); }
   if (!['https:', 'http:'].includes(baseUrl.protocol)
     || baseUrl.username || baseUrl.password || baseUrl.search || baseUrl.hash) throw new Failure('invalid_url');
-  if (raw.persona.length + 500 >= raw.limits.contextChars) throw new Failure('persona_exceeds_context');
+  if (raw.limits.contextTokens === undefined ? raw.persona.length + 500 >= raw.limits.contextChars!
+    : textTokens(raw.persona) + raw.model.maxOutputTokens + raw.limits.toolResultChars + 1024 >= raw.limits.contextTokens) throw new Failure('persona_exceeds_context');
   if (raw.memory) {
     let url: URL;
     try { url = new URL(raw.memory.embeddingBaseUrl); } catch { throw new Failure('invalid_url'); }

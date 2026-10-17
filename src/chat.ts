@@ -4,22 +4,24 @@ import type { Message, ModelMessage, Turn } from './contracts.js';
 import { elapsed, log, messageLog } from './contracts.js';
 import { abortable, check, code, Failure } from './errors.js';
 import { render } from './messages.js';
+import { contextSize, inputBudget } from './context-budget.js';
 
 function size(value: unknown): number { return JSON.stringify(value, (key, item: unknown) => key === 'images' ? undefined : item).length; }
-export function assemble(persona: string, history: ModelMessage[], current: Message, budget: number, toolChars: number): ModelMessage[] {
+export function assemble(persona: string, history: ModelMessage[], current: Message, budget: number, toolChars: number,
+  measure: (value: unknown) => number = size, images?: ModelMessage['images']): ModelMessage[] {
   const system: ModelMessage = { role: 'system', content: persona };
-  const user: ModelMessage = { role: 'user', content: render(current) };
+  const user: ModelMessage = { role: 'user', content: render(current), ...(images?.length ? { images } : {}) };
   const groups: ModelMessage[][] = [];
   for (const message of history) {
     if (message.role === 'user' || groups.length === 0) groups.push([]);
     groups[groups.length - 1]!.push(message);
   }
-  const reserve = size(system) + size(user) + toolChars;
+  const reserve = measure(system) + measure(user) + toolChars;
   if (reserve > budget) throw new Failure('input_too_long');
   let length = reserve;
   const selected: ModelMessage[][] = [];
   for (const group of groups.reverse()) {
-    const cost = size(group);
+    const cost = measure(group);
     if (length + cost > budget) break;
     selected.unshift(group);
     length += cost;
@@ -41,8 +43,9 @@ async function runTurn(ctx: Context, config: Config, turn: Turn, signal: AbortSi
   const tools = ctx.tools.schemas();
   const allowedTools = new Set(tools.map(tool => tool.function.name));
   const memory = await ctx.get('memory')?.prepare(turn, signal);
-  const messages = assemble(config.persona + (memory ? `\n\n${memory.context}` : ''), memory?.history ?? ctx.store.history(turn.message, config.limits.history), turn.message, config.limits.contextChars, size(tools));
-  if (memory?.images.length) messages.at(-1)!.images = memory.images;
+  const measure = (value: unknown) => contextSize(value, config.limits);
+  const budget = inputBudget(config);
+  const messages = assemble(config.persona + (memory ? `\n\n${memory.context}` : ''), memory?.history ?? ctx.store.history(turn.message, config.limits.history), turn.message, budget, measure(tools), measure, memory?.images);
   const protocol: ModelMessage[] = [];
   const calls = new Set<string>();
   const streaming = config.output?.mode === 'streaming';
@@ -50,7 +53,7 @@ async function runTurn(ctx: Context, config: Config, turn: Turn, signal: AbortSi
   const stream = streaming ? ctx.output.openStream!(turn, signal) : undefined;
   for (let step = 0; step < config.limits.steps; step++) {
     check(signal);
-    if (size(messages) + size(tools) > config.limits.contextChars) throw new Failure('context_budget');
+    if (measure(messages) + measure(tools) > budget) throw new Failure('context_budget');
     const started = performance.now();
     const modelDetails = { model: config.model.name, step: step + 1 };
     log(ctx, 'model_started', turn.id, 'model', modelDetails);

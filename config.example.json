@@ -39,7 +39,7 @@
     "queue": 100,
     "queueAgeMs": 120000,
     "turnTimeoutMs": 120000,
-    "contextChars": 100000,
+    "contextTokens": 100000,
     "history": 100,
     "steps": 5,
     "toolTimeoutMs": 10000,

@@ -203,7 +203,7 @@ export class ChatMemory implements Memory {
     }
     return { history, context: contextParts.join('\n\n'), images };
   }
-  observe(message: Message): void { void this.images.describe(message); }
+  async observe(message: Message): Promise<void> { await this.images.describe(message); }
   async process(): Promise<void> {
     if (!this.settings.enabled || this.stopped) return;
     if (this.working) return this.working;

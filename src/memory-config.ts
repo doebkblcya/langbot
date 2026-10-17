@@ -16,7 +16,7 @@ export interface MemoryConfig {
 export const memoryDefaults: MemoryConfig = {
   enabled: false, embeddingBaseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
   embeddingModel: 'text-embedding-v4', embeddingDimensions: 1024,
-  recentMessages: 30, recallLimit: 8, contextChars: 5000, batchSize: 20, batchSeconds: 60, images: true, maxImages: 3,
+  recentMessages: 100, recallLimit: 8, contextChars: 5000, batchSize: 20, batchSeconds: 60, images: true, maxImages: 3,
 };
 export const memoryProperties = {
   enabled: { type: 'boolean', title: '启用聊天与记忆', default: false },

@@ -203,7 +203,12 @@ test('older chat is summarized behind the current turn; correcting its source in
   const background = new FakeModel(async messages => ({ role: 'assistant', content: messages[0]!.content!.startsWith('将旧摘要') ? '用户200之前讨论过骑行计划，尚未确认完成。' : '{"memories":[]}' }));
   const app = await createApp(options, { adapter: new FakeAdapter(), model: new FakeModel(), memoryModel: background });
   try {
-    for (let i = 1; i <= 20; i++) app.ctx.intake.receive(event('聊天'+i, i, null));
+    for (let i = 1; i <= 6; i++) app.ctx.intake.receive(event('聊天'+i, i, null));
+    const boundary = app.ctx.store.records({ limit: 1 })[0]!.message;
+    await app.ctx.memory.prepare({ id: randomUUID(), message: boundary, reason: 'test' }, signal());
+    await new Promise<void>(resolve => setImmediate(resolve));
+    assert.equal(app.ctx.memory.status().summaries, 0);
+    app.ctx.intake.receive(event('聊天7', 7, null));
     const message = app.ctx.store.records({ limit: 1 })[0]!.message;
     const turn = { id: randomUUID(), message, reason: 'test' };
     await app.ctx.memory.prepare(turn, signal());

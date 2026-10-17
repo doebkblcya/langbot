@@ -9,8 +9,9 @@ const stages = { application_ready: '小狼已就绪', application_stopping: '�
   model_started: '调用模型', model_completed: '模型返回', model_failed: '模型调用失败', reply_generated: '生成回复',
   tool_started: '调用工具', tool_completed: '工具完成', tool_failed: '工具失败', tool_unknown: '工具结果未知',
   send_started: '发送回复', send_confirmed: 'QQ 已确认发送', send_failed: '发送失败', send_unknown: '发送结果未知', turn_completed: '本轮完成' };
+Object.assign(stages, { memory_recalled: '读取聊天与记忆', memory_processing_started: '开始整理记忆', memory_processing_completed: '记忆整理完成', memory_processing_failed: '记忆整理失败', memory_vector_fallback: '向量不可用，使用关键词检索', memory_summary_failed: '聊天摘要整理失败', memory_image_unavailable: '图片暂时无法读取' });
 const reasons = { private: '私聊默认回复', mention: '@机器人', keyword: '命中触发词', no_trigger: '未触发回复', duplicate: '重复消息', own_message: '机器人自身消息', group_not_allowed: '群不在白名单', chat_disabled: '聊天已停用', invalid_message: '格式无效', account_mismatch: '账号不匹配' };
-const descriptions = { overview: ['运行概览', '看看小狼现在怎么样。'], chats: ['最近聊天', '收到的消息、生成的回复，以及每一轮的处理结果。'], logs: ['过程日志', '从收到消息到发送回复，跟着每一步看。'], plugins: ['插件列表', '查看当前的小狼由哪些插件组成。'], 'model-settings': ['回复模型', '配置模型连接与生成方式。'], 'qq-settings': ['QQ 接入', '配置小狼连接的机器人与消息范围。'] };
+const descriptions = { memories: ['聊天与记忆', '看看小狼记住了什么，也可以帮它纠正。'], overview: ['运行概览', '看看小狼现在怎么样。'], chats: ['最近聊天', '收到的消息、生成的回复，以及每一轮的处理结果。'], logs: ['过程日志', '从收到消息到发送回复，跟着每一步看。'], plugins: ['插件列表', '查看当前的小狼由哪些插件组成。'], 'model-settings': ['回复模型', '配置模型连接与生成方式。'], 'qq-settings': ['QQ 接入', '配置小狼连接的机器人与消息范围。'] };
 const dateFormat = new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Shanghai', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false });
 const timeFormat = new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Shanghai', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
 let logs = [], cursor = 0, before, next = null, busy = false, turnRequest = 0, selected, runStarted;
@@ -30,6 +31,7 @@ function showView(view) {
   for (const button of document.querySelectorAll('.nav')) { button.classList.toggle('active', button.dataset.view === view); if (button.dataset.view === view) button.setAttribute('aria-current', 'page'); else button.removeAttribute('aria-current'); }
   [$('page-title').textContent, $('page-description').textContent] = descriptions[view];
   if (view === 'chats') refreshTurns();
+  if (view === 'memories') refreshMemory();
   if (view === 'logs') renderLogs();
   if (view.endsWith('-settings') && !settings) loadSettings();
 }
@@ -134,6 +136,9 @@ async function openDetail(id) {
       for (const send of detail.sends) { const row = element('div', 'send-line'); row.append(element('span', 'muted', send.kind === 'feedback' ? '故障提示 ' : `第 ${send.part} 段 `), badge(send.state), element('p', '', send.text)); if (send.receipt) row.append(element('div', 'mono', `回执 ${send.receipt}`)); section.append(row); }
       body.append(section);
     }
+    try { const recall = await get(`/api/memory-recalls/${encodeURIComponent(id)}`);
+      if (selected === id && (recall.items?.length || recall.summary)) body.append(detailSection('本轮使用的记忆与摘要', [recall.summary ? `摘要：${recall.summary}` : '', ...(recall.items ?? []).map(item => `${item.content}\n记忆 ${item.id} · 来源 ${item.sources.join(', ')}`)].filter(Boolean).join('\n\n')));
+    } catch { /* Older server versions may not expose memories. */ }
     if (detail.tools.length) body.append(detailSection('工具调用', detail.tools.map(tool => `${tool.name} · ${words[tool.state] ?? tool.state}`).join('\n')));
     const button = element('button', 'secondary detail-log-button', '查看这一轮的过程日志');
     button.addEventListener('click', () => { $('detail').close(); selected = undefined; $('log-filter').value = detail.id; showView('logs'); }); body.append(button);
@@ -169,7 +174,7 @@ async function poll() {
 }
 
 const settingsErrors = {
-  settings_conflict: '配置已被其他页面修改，请重新读取后再保存。', settings_busy: '配置正在保存或应用，请稍后重试。',
+  memory_conflict: '记忆已更新，请关闭详情重新读取后再修改。', invalid_memory_request: '记忆字段填写不正确，请检查内容、用户ID或有效期。', memory_not_found: '这条记忆已不存在。', memory_disabled: '记忆功能尚未启用，请先在插件配置中开启并应用。', embedding_key_missing: '尚未配置百炼 API Key。', embedding_http_401: '百炼鉴权失败，请检查 API Key 和业务空间地址。', embedding_http_403: '百炼未授权此模型，请检查模型权限和地址。', embedding_http_404: '百炼地址或模型标识不正确。', embedding_network: '向量服务暂时无法连接或请求超时。', settings_conflict: '配置已被其他页面修改，请重新读取后再保存。', settings_busy: '配置正在保存或应用，请稍后重试。',
   chat_busy: '小狼正在处理消息，请等回复结束后再应用。已保存的配置不会丢失。', no_pending_settings: '没有需要应用的新配置。',
   invalid_config: '参数不符合范围，请检查表单。', invalid_qq_config: 'QQ 配置不完整或超出范围，请检查。',
   invalid_saved_settings: '配置不符合要求，请检查字段和填写范围。', invalid_secret: '密钥格式不正确，请检查是否包含换行。',
@@ -368,3 +373,60 @@ poll();
 loadSettings();
 const timer = setInterval(poll, 2000);
 window.addEventListener('pagehide', () => clearInterval(timer));
+
+let memoryBefore, memoryNext, editingMemory;
+async function refreshMemory() {
+  try {
+    const params = new URLSearchParams({ q: $('memory-search').value.trim(), kind: $('memory-kind').value });
+    if (memoryBefore) params.set('before', memoryBefore);
+    const data = await get(`/api/memory?${params}`), state = data.status;
+    memoryNext = data.next; $('memory-older').disabled = !data.next;
+    const vector = state.vectorState === 'ready' ? '混合检索可用' : state.vectorState === 'missing_key' ? '未配置百炼密钥 · 当前仅关键词检索' : `向量异常 · 当前使用关键词检索（${state.vectorError}）`;
+    $('memory-status').textContent = `${state.enabled ? '已启用' : '尚未启用'} · ${state.total} 条记忆 · 向量已索引 ${state.indexed} 条 · ${state.summaries} 份摘要 · ${vector}${state.processing ? ' · 正在整理聊天' : ''}${state.extractionError ? ` · 整理异常：${state.extractionError}` : ''}`;
+    $('memory-list').replaceChildren(...data.items.map(item => {
+      const card = element('button', 'memory-card'); card.type = 'button';
+      card.append(element('span', 'badge neutral', item.kind === 'profile' ? '人物资料' : '经历与计划'), element('p', '', item.content), element('small', 'muted', `${item.pinned ? '已置顶 · ' : ''}重要度 ${item.importance} · ${time(item.updated, true)} · ${item.sources.length} 条来源`));
+      card.addEventListener('click', () => openMemory(item.id)); return card;
+    }));
+    if (!data.items.length) $('memory-list').append(element('p', 'empty', '还没有符合条件的记忆。聊天会在后台自动整理。'));
+  } catch { $('memory-status').textContent = '暂时无法读取记忆，请稍后重试。'; }
+}
+async function openMemory(id) {
+  if (!settings) await loadSettings();
+  editingMemory = id ? await get(`/api/memory/${encodeURIComponent(id)}`) : undefined;
+  const form = $('memory-form'), item = editingMemory;
+  for (const [key, value] of Object.entries({ content: item?.content ?? '', kind: item?.kind ?? 'profile', importance: item?.importance ?? 3, people: item?.people?.join('\n') ?? '', validUntil: item?.validUntil ? new Date(Date.parse(item.validUntil) + 8 * 3600000).toISOString().slice(0, 16) : '' })) form.elements.namedItem(key).value = value;
+  form.elements.namedItem('pinned').checked = !!item?.pinned;
+  $('memory-forget').hidden = !item;
+  $('memory-form-message').textContent = '保存后立即影响后续召回；原始聊天记录仍可追溯。';
+  $('memory-sources').replaceChildren(...(item?.sources ?? []).map(source => detailSection(`原文 ${source.seq} · ${time(source.time, true)} · ${source.name} · ${source.group ? `群 ${source.group}` : '私聊'}`, source.text)));
+  if (!$('memory-detail').open) $('memory-detail').showModal();
+}
+$('memory-config').addEventListener('click', () => openPlugin('xiaolang-memory'));
+$('memory-refresh').addEventListener('click', () => { memoryBefore = undefined; refreshMemory(); });
+$('memory-kind').addEventListener('change', () => { memoryBefore = undefined; refreshMemory(); });
+$('memory-search').addEventListener('keydown', event => { if (event.key === 'Enter') { memoryBefore = undefined; refreshMemory(); } });
+$('memory-latest').addEventListener('click', () => { memoryBefore = undefined; refreshMemory(); });
+$('memory-older').addEventListener('click', () => { memoryBefore = memoryNext; refreshMemory(); });
+$('memory-add').addEventListener('click', () => { openMemory().catch(() => notice('暂时无法打开记忆编辑。')); });
+$('close-memory').addEventListener('click', () => $('memory-detail').close());
+for (const action of ['process', 'test', 'reindex']) $('memory-' + action).addEventListener('click', async event => {
+  event.target.disabled = true;
+  try { if (!settings) await loadSettings(); const result = await settingsRequest('/api/memory/action', { action }); await refreshMemory(); $('memory-status').textContent += result.dimensions ? ` · 连接测试成功（${result.dimensions} 维）` : ' · 后台任务已提交'; }
+  catch (error) { $('memory-status').textContent = error.message; }
+  finally { event.target.disabled = false; }
+});
+$('memory-form').addEventListener('submit', async event => {
+  event.preventDefault(); const form = event.target, fields = new FormData(form);
+  const value = { content: fields.get('content'), kind: fields.get('kind'), people: String(fields.get('people')).split('\n').map(p => p.trim()).filter(Boolean), importance: Number(fields.get('importance')), sources: editingMemory?.sources?.map(p => p.seq) ?? [], pinned: form.elements.namedItem('pinned').checked, validUntil: fields.get('validUntil') ? new Date(String(fields.get('validUntil'))).toISOString() : null };
+  if (editingMemory) { value.id = editingMemory.id; value.version = editingMemory.version; }
+  const button = form.querySelector('[type=submit]'); button.disabled = true;
+  try { await settingsRequest('/api/memory/mutate', { action: editingMemory ? 'update' : 'remember', value }); $('memory-detail').close(); await refreshMemory(); }
+  catch (error) { $('memory-form-message').textContent = error.message; }
+  finally { button.disabled = false; }
+});
+$('memory-forget').addEventListener('click', async () => {
+  if (!editingMemory) return;
+  try { await settingsRequest('/api/memory/mutate', { action: 'forget', id: editingMemory.id, version: editingMemory.version }); $('memory-detail').close(); await refreshMemory(); }
+  catch (error) { $('memory-form-message').textContent = error.message; }
+});

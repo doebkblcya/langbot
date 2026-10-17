@@ -35,11 +35,12 @@ async function main(): Promise<void> {
   });
   const config = configuration.config;
   if (configuration.secrets.deepseek) process.env.DEEPSEEK_API_KEY = configuration.secrets.deepseek;
+  if (configuration.secrets.embedding) process.env.BAILIAN_API_KEY = configuration.secrets.embedding;
   if (configuration.secrets.qq && typeof config.adapter.config?.secretEnv === 'string') process.env[config.adapter.config.secretEnv] = configuration.secrets.qq;
   try {
     if (!process.env.DEEPSEEK_API_KEY) throw new Failure('missing_model_key');
     app = await createApp(config, {
-      apiKey: process.env.DEEPSEEK_API_KEY, signal: controller.signal,
+      apiKey: process.env.DEEPSEEK_API_KEY, embeddingKey: process.env.BAILIAN_API_KEY, signal: controller.signal,
       configuration,
       writeLog: line => console.info(line),
       secrets: Object.entries(process.env).filter(([key, value]) => value && /KEY|SECRET|TOKEN|PASSWORD/i.test(key)).map(([, value]) => value!),

@@ -1,0 +1,172 @@
+import { DatabaseSync } from 'node:sqlite';
+import { createHash, randomUUID } from 'node:crypto';
+import * as vec from 'sqlite-vec';
+import type { MemoryConfig } from './memory-config.js';
+import { Failure } from './errors.js';
+
+export interface MemoryItem {
+  id: string; content: string; kind: 'profile' | 'event'; people: string[]; sources: number[];
+  importance: number; pinned: boolean; created: number; updated: number; version: number; validUntil: string | null;
+}
+export interface MemoryWrite {
+  id?: string; content: string; kind: 'profile' | 'event'; people: string[]; sources: number[];
+  importance: number; validUntil?: string | null; version?: number; pinned?: boolean;
+}
+const segmenter = new Intl.Segmenter('zh', { granularity: 'word' });
+export function words(text: string): string[] {
+  const clean = text.normalize('NFKC').toLowerCase();
+  const tokens = [...segmenter.segment(clean)].filter(p => p.isWordLike).map(p => p.segment);
+  // Bigrams let short Chinese names and phrases match even when the dictionary segments differently.
+  for (const part of clean.match(/[\p{Script=Han}]+/gu) ?? []) for (let i = 0; i + 1 < part.length; i++) tokens.push(part.slice(i, i + 2));
+  return [...new Set(tokens)].slice(0, 300);
+}
+function tokens(text: string): string { return words(text).join(' '); }
+function unpack(row: Record<string, unknown>): MemoryItem {
+  return { id: String(row.id), content: String(row.content), kind: row.kind as MemoryItem['kind'],
+    people: JSON.parse(String(row.people)), sources: JSON.parse(String(row.sources)), importance: Number(row.importance),
+    pinned: !!row.pinned, created: Number(row.created), updated: Number(row.updated), version: Number(row.version), validUntil: row.valid_until as string | null };
+}
+function similar(a: string, b: string): boolean {
+  const x = new Set(words(a)), y = new Set(words(b));
+  return a === b || (x.size > 2 && y.size > 2 && [...x].filter(w => y.has(w)).length / Math.min(x.size, y.size) > 0.8);
+}
+export class MemoryRepository {
+  private db: DatabaseSync;
+  vectorError?: string;
+  constructor(path: string, private config: MemoryConfig) {
+    this.db = new DatabaseSync(path, { allowExtension: true });
+    this.db.exec(`PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;
+      CREATE TABLE IF NOT EXISTS memory_meta(key TEXT PRIMARY KEY,value TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS memory_items(id TEXT PRIMARY KEY,content TEXT NOT NULL,kind TEXT NOT NULL,people TEXT NOT NULL,sources TEXT NOT NULL,
+        importance INTEGER NOT NULL,pinned INTEGER NOT NULL DEFAULT 0,created INTEGER NOT NULL,updated INTEGER NOT NULL,version INTEGER NOT NULL DEFAULT 1,valid_until TEXT,deleted INTEGER NOT NULL DEFAULT 0,indexed INTEGER NOT NULL DEFAULT 0);
+      CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts USING fts5(id UNINDEXED,body);
+      CREATE TABLE IF NOT EXISTS memory_suppressed(seq INTEGER PRIMARY KEY);
+      CREATE TABLE IF NOT EXISTS memory_forgotten(content TEXT PRIMARY KEY);
+      CREATE TABLE IF NOT EXISTS memory_summaries(session TEXT PRIMARY KEY,through INTEGER NOT NULL,body TEXT NOT NULL,updated INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS memory_recalls(turn TEXT PRIMARY KEY,payload TEXT NOT NULL,created INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS memory_images(hash TEXT PRIMARY KEY,caption TEXT NOT NULL,updated INTEGER NOT NULL);
+    `);
+    try {
+      vec.load(this.db);
+      const fingerprint = createHash('sha256').update(JSON.stringify([config.embeddingBaseUrl, config.embeddingModel, config.embeddingDimensions])).digest('hex');
+      if (this.meta('embedding_fingerprint') !== fingerprint) {
+        this.db.exec('DROP TABLE IF EXISTS memory_vec; UPDATE memory_items SET indexed=0');
+        this.meta('embedding_fingerprint', fingerprint);
+      }
+      this.db.exec(`CREATE VIRTUAL TABLE IF NOT EXISTS memory_vec USING vec0(id TEXT PRIMARY KEY,embedding float[${config.embeddingDimensions}] distance_metric=cosine)`);
+    } catch { this.vectorError = 'vector_extension_unavailable'; }
+  }
+  close(): void { this.db.close(); }
+  transaction<T>(run: () => T): T {
+    this.db.exec('BEGIN IMMEDIATE');
+    try { const value = run(); this.db.exec('COMMIT'); return value; }
+    catch (error) { this.db.exec('ROLLBACK'); throw error; }
+  }
+  meta(key: string, value?: string): string {
+    if (value !== undefined) this.db.prepare('INSERT INTO memory_meta VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').run(key, value);
+    return String(this.db.prepare('SELECT value FROM memory_meta WHERE key=?').get(key)?.value ?? '');
+  }
+  suppressed(seq: number): boolean { return !!this.db.prepare('SELECT 1 FROM memory_suppressed WHERE seq=?').get(seq); }
+  get(id: string): MemoryItem | undefined {
+    const row = this.db.prepare('SELECT * FROM memory_items WHERE id=? AND deleted=0').get(id);
+    return row ? unpack(row) : undefined;
+  }
+  list(query = '', kind = '', before = Number.MAX_SAFE_INTEGER, limit = 40): MemoryItem[] {
+    const rows = this.db.prepare(`SELECT * FROM memory_items WHERE deleted=0 AND updated<? AND (?='' OR kind=?)
+      AND (?='' OR instr(lower(content),lower(?))>0 OR instr(people,?)>0) ORDER BY updated DESC,id LIMIT ?`)
+      .all(before, kind, kind, query, query, query, limit);
+    return rows.map(unpack);
+  }
+  lexical(query: string, limit = 30): MemoryItem[] {
+    const search = words(query).slice(0, 40).map(w => `"${w.replaceAll('"', '""')}"`).join(' OR ');
+    if (!search) return [];
+    return this.db.prepare(`SELECT m.* FROM memory_fts f JOIN memory_items m ON m.id=f.id WHERE memory_fts MATCH ? AND m.deleted=0 ORDER BY bm25(memory_fts) LIMIT ?`).all(search, limit).map(unpack);
+  }
+  semantic(vector: number[], limit = 30): MemoryItem[] {
+    if (this.vectorError) return [];
+    const rows = this.db.prepare('SELECT id,distance FROM memory_vec WHERE embedding MATCH ? AND k=? ORDER BY distance').all(new Uint8Array(new Float32Array(vector).buffer), limit);
+    return rows.filter(row => Number(row.distance) < 0.85).flatMap(row => this.get(String(row.id)) ?? []);
+  }
+  candidates(query: string, people: string[], vector?: number[]): MemoryItem[] {
+    const lexical = this.lexical(query), semantic = vector ? this.semantic(vector) : [];
+    const profiles = this.db.prepare("SELECT * FROM memory_items WHERE deleted=0 AND kind='profile' AND (pinned=1 OR instr(people,?)>0) ORDER BY pinned DESC,importance DESC LIMIT 15").all(people[0] ?? '\0').map(unpack);
+    const pinned = this.db.prepare('SELECT * FROM memory_items WHERE deleted=0 AND pinned=1 ORDER BY importance DESC LIMIT 10').all().map(unpack);
+    const scores = new Map<string, { item: MemoryItem; score: number }>();
+    for (const [weight, items] of [[1, lexical], [1, semantic], [0.45, profiles], [0.6, pinned]] as const) items.forEach((item, i) => {
+      if (item.validUntil && Date.parse(item.validUntil) < Date.now()) return;
+      const age = Math.max(0, (Date.now() - item.updated) / 86400000);
+      const decay = item.pinned || item.importance >= 4 ? 1 : 1 / (1 + age / 90);
+      const bonus = 1 + item.importance * 0.06 + (item.people.some(p => people.includes(p)) ? 0.15 : 0);
+      const old = scores.get(item.id);
+      scores.set(item.id, { item, score: (old?.score ?? 0) + weight / (60 + i + 1) * bonus * decay });
+    });
+    return [...scores.values()].sort((a, b) => b.score - a.score).slice(0, this.config.recallLimit).map(x => x.item);
+  }
+  write(input: MemoryWrite, manual = false): MemoryItem | undefined {
+    if (!manual && (input.sources.some(seq => this.suppressed(seq)) || this.db.prepare('SELECT content FROM memory_forgotten').all().some(row => similar(input.content, String(row.content))))) return;
+    const old = input.id ? this.get(input.id) : undefined;
+    if (input.id && !old) throw new Failure('memory_not_found');
+    if (old && input.version !== old.version) throw new Failure('memory_conflict');
+    const duplicate = !old ? this.db.prepare('SELECT * FROM memory_items WHERE deleted=0 AND content=? AND people=?').get(input.content, JSON.stringify([...input.people].sort())) : undefined;
+    if (duplicate) return unpack(duplicate);
+    const id = old?.id ?? randomUUID(), now = Date.now();
+    this.db.prepare(`INSERT INTO memory_items(id,content,kind,people,sources,importance,pinned,created,updated,valid_until) VALUES (?,?,?,?,?,?,?,?,?,?)
+      ON CONFLICT(id) DO UPDATE SET content=excluded.content,kind=excluded.kind,people=excluded.people,sources=excluded.sources,
+      importance=excluded.importance,pinned=excluded.pinned,updated=excluded.updated,valid_until=excluded.valid_until,version=memory_items.version+1,indexed=0`)
+      .run(id, input.content, input.kind, JSON.stringify([...input.people].sort()), JSON.stringify([...new Set([...(old?.sources ?? []), ...input.sources])]), input.importance,
+        input.pinned === undefined ? (old?.pinned ? 1 : 0) : input.pinned ? 1 : 0, old?.created ?? now, now, input.validUntil ?? null);
+    this.db.prepare('DELETE FROM memory_fts WHERE id=?').run(id);
+    this.db.prepare('INSERT INTO memory_fts(id,body) VALUES (?,?)').run(id, tokens(input.content + ' ' + input.people.join(' ')));
+    if (!this.vectorError) this.db.prepare('DELETE FROM memory_vec WHERE id=?').run(id);
+    return this.get(id);
+  }
+  protect(item: MemoryItem): void {
+    this.db.prepare('INSERT OR IGNORE INTO memory_forgotten VALUES (?)').run(item.content);
+    item.sources.forEach(seq => this.db.prepare('INSERT OR IGNORE INTO memory_suppressed VALUES (?)').run(seq));
+    // Summaries can contain the old fact without naming its memory ID. Invalidate them together.
+    this.db.exec('DELETE FROM memory_summaries; DELETE FROM memory_recalls');
+  }
+  remove(id: string, version: number): void {
+    const item = this.get(id);
+    if (!item) throw new Failure('memory_not_found');
+    if (item.version !== version) throw new Failure('memory_conflict');
+    this.protect(item);
+    this.db.prepare('UPDATE memory_items SET deleted=1,version=version+1,indexed=0 WHERE id=?').run(id);
+    this.db.prepare('DELETE FROM memory_fts WHERE id=?').run(id);
+    if (!this.vectorError) this.db.prepare('DELETE FROM memory_vec WHERE id=?').run(id);
+  }
+  pending(limit = 10): MemoryItem[] { return this.db.prepare('SELECT * FROM memory_items WHERE deleted=0 AND indexed=0 ORDER BY updated LIMIT ?').all(limit).map(unpack); }
+  index(item: MemoryItem, vector: number[]): void {
+    if (this.vectorError || this.get(item.id)?.version !== item.version) return;
+    this.transaction(() => {
+      this.db.prepare('DELETE FROM memory_vec WHERE id=?').run(item.id);
+      this.db.prepare('INSERT INTO memory_vec(id,embedding) VALUES (?,?)').run(item.id, new Uint8Array(new Float32Array(vector).buffer));
+      this.db.prepare('UPDATE memory_items SET indexed=1 WHERE id=?').run(item.id);
+    });
+  }
+  reindex(): void { this.db.exec('UPDATE memory_items SET indexed=0'); }
+  summary(session: string): { through: number; body: string } | undefined {
+    const row = this.db.prepare('SELECT through,body FROM memory_summaries WHERE session=?').get(session);
+    return row ? { through: Number(row.through), body: String(row.body) } : undefined;
+  }
+  setSummary(session: string, through: number, body: string): void {
+    this.db.prepare('INSERT INTO memory_summaries VALUES (?,?,?,?) ON CONFLICT(session) DO UPDATE SET through=excluded.through,body=excluded.body,updated=excluded.updated').run(session, through, body, Date.now());
+  }
+  image(hash: string, caption?: string): string | undefined {
+    if (caption !== undefined) this.db.prepare('INSERT INTO memory_images VALUES (?,?,?) ON CONFLICT(hash) DO UPDATE SET caption=excluded.caption,updated=excluded.updated').run(hash, caption, Date.now());
+    return this.db.prepare('SELECT caption FROM memory_images WHERE hash=?').get(hash)?.caption as string | undefined;
+  }
+  recall(turn: string, payload?: unknown): unknown {
+    if (payload !== undefined) {
+      this.db.prepare('INSERT OR REPLACE INTO memory_recalls VALUES (?,?,?)').run(turn, JSON.stringify(payload), Date.now());
+      this.db.exec('DELETE FROM memory_recalls WHERE turn IN (SELECT turn FROM memory_recalls ORDER BY created DESC LIMIT -1 OFFSET 500)');
+    }
+    const row = this.db.prepare('SELECT payload FROM memory_recalls WHERE turn=?').get(turn);
+    return row ? JSON.parse(String(row.payload)) as unknown : undefined;
+  }
+  counts(): Record<string, number> {
+    return { total: Number(this.db.prepare('SELECT count(*) AS n FROM memory_items WHERE deleted=0').get()!.n),
+      indexed: Number(this.db.prepare('SELECT count(*) AS n FROM memory_items WHERE deleted=0 AND indexed=1').get()!.n),
+      summaries: Number(this.db.prepare('SELECT count(*) AS n FROM memory_summaries').get()!.n) };
+  }
+}

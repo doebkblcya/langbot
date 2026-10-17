@@ -1,0 +1,36 @@
+import type { Fields } from './contracts.js';
+
+export interface MemoryConfig {
+  enabled: boolean;
+  embeddingBaseUrl: string;
+  embeddingModel: string;
+  embeddingDimensions: number;
+  recentMessages: number;
+  recallLimit: number;
+  contextChars: number;
+  batchSize: number;
+  batchSeconds: number;
+  images: boolean;
+  maxImages: number;
+}
+export const memoryDefaults: MemoryConfig = {
+  enabled: false, embeddingBaseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+  embeddingModel: 'text-embedding-v4', embeddingDimensions: 1024,
+  recentMessages: 30, recallLimit: 8, contextChars: 5000, batchSize: 20, batchSeconds: 60, images: true, maxImages: 3,
+};
+export const memoryProperties = {
+  enabled: { type: 'boolean', title: '启用聊天与记忆', default: false },
+  embeddingBaseUrl: { type: 'string', title: '百炼 API 地址', minLength: 1, maxLength: 1000, description: '填写所在地域或业务空间的 OpenAI 兼容地址，自动追加 /embeddings。' },
+  embeddingModel: { type: 'string', title: '向量模型', minLength: 1, maxLength: 100 },
+  embeddingDimensions: { type: 'integer', title: '向量维度', enum: [64, 128, 256, 512, 768, 1024, 1536, 2048] },
+  recentMessages: { type: 'integer', title: '保留最近原文条数', minimum: 5, maximum: 100 },
+  recallLimit: { type: 'integer', title: '每轮最多召回记忆数', minimum: 1, maximum: 20 },
+  contextChars: { type: 'integer', title: '记忆与摘要字数预算', minimum: 500, maximum: 12000 },
+  batchSize: { type: 'integer', title: '每批整理聊天条数', minimum: 1, maximum: 50 },
+  batchSeconds: { type: 'integer', title: '后台整理间隔（秒）', minimum: 15, maximum: 3600 },
+  images: { type: 'boolean', title: '理解聊天图片' },
+  maxImages: { type: 'integer', title: '单轮最多图片数', minimum: 1, maximum: 5 },
+};
+export const memorySchema: Fields = { type: 'object', additionalProperties: false, required: Object.keys(memoryProperties), properties: {
+  ...memoryProperties, apiKey: { type: 'string', title: '百炼 API Key', writeOnly: true, maxLength: 4096, description: '留空保留已有密钥；缺少密钥时仅使用关键词检索。' },
+} };

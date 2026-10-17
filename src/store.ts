@@ -44,6 +44,22 @@ export class SqliteStore implements Store {
     `);
   }
   close(): void { this.db.close(); }
+  records(query: { after?: number; before?: number; fence?: number; session?: string; limit: number; incoming?: boolean }) {
+    const rows = this.db.prepare(`SELECT seq,direction,session,payload,source_seq FROM messages WHERE seq>? AND seq<?
+      AND (? IS NULL OR (direction='in' AND seq<?) OR (direction='out' AND source_seq<?))
+      AND (? IS NULL OR session=?) AND (?=0 OR direction='in') ORDER BY seq ${query.after !== undefined ? 'ASC' : 'DESC'} LIMIT ?`)
+      .all(query.after ?? 0, query.before ?? Number.MAX_SAFE_INTEGER, query.fence ?? null, query.fence ?? null, query.fence ?? null,
+        query.session ?? null, query.session ?? null, query.incoming ? 1 : 0, Math.min(500, Math.max(1, query.limit)));
+    return (query.after !== undefined ? rows : rows.reverse()).flatMap(row => {
+      const source = row.direction === 'in' ? row : this.db.prepare('SELECT payload FROM messages WHERE seq=?').get(Number(row.source_seq));
+      if (!source) return [];
+      const message = JSON.parse(String(source.payload)) as Message;
+      message.seq = row.direction === 'in' ? Number(row.seq) : Number(row.source_seq);
+      return [{ seq: Number(row.seq), direction: row.direction as 'in' | 'out', session: String(row.session), message,
+        text: row.direction === 'in' ? render(message) : String((JSON.parse(String(row.payload)) as { text: string }).text) }];
+    });
+  }
+  record(seq: number) { return this.records({ after: seq - 1, before: seq + 1, limit: 1 })[0]; }
   admit(message: Message): Message | undefined {
     const result = this.db.prepare('INSERT OR IGNORE INTO messages(key,session,direction,source_seq,payload) VALUES (?,?,\'in\',0,?)')
       .run(message.key, message.session, JSON.stringify(message));

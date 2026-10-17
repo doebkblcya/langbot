@@ -162,3 +162,12 @@ dialog{padding:20px}
 
 #plugin-detail #trigger-form{border:0;box-shadow:none;padding:0;margin-top:26px;border-top:1px solid #edf1ed;padding-top:22px}
 #trigger-form h3{margin:0;font-size:15px;font-weight:550}
+
+.memory-actions { flex-wrap: wrap; margin: 18px 0; justify-content: flex-start; }
+.memory-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; margin-top: 24px; }
+.memory-card { text-align: left; padding: 20px; border: 1px solid var(--line, #dce5df); border-radius: 12px; background: #f9fbf9; color: inherit; cursor: pointer; }
+.memory-card p { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.65; }
+.memory-card:hover { border-color: #638975; }
+#memory-sources { margin-top: 28px; }
+#memory-form textarea { width: 100%; }
+#memory-status { overflow-wrap: anywhere; }

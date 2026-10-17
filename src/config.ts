@@ -1,6 +1,8 @@
 import { readFile } from 'node:fs/promises';
 import { Ajv } from 'ajv';
 import { Failure } from './errors.js';
+import { memoryProperties } from './memory-config.js';
+import type { MemoryConfig } from './memory-config.js';
 
 export interface PluginEntry {
   id: string;
@@ -24,6 +26,7 @@ export interface Config {
   chatEnabled: boolean;
   trigger?: { privateReply: boolean; groupMention: boolean; groupKeywords: boolean; words: string[] };
   output?: { mode: 'normal' | 'streaming' };
+  memory?: MemoryConfig;
   failureFeedback?: { enabled: boolean };
   plugins?: PluginConfig;
   logging?: { content?: boolean; previewChars?: number };
@@ -47,6 +50,7 @@ const schema = {
       words: { type: 'array', maxItems: 100, uniqueItems: true, items: { type: 'string', minLength: 1, maxLength: 100 } },
     } },
     output: { type: 'object', additionalProperties: false, required: ['mode'], properties: { mode: { enum: ['normal', 'streaming'] } } },
+    memory: { type: 'object', additionalProperties: false, required: Object.keys(memoryProperties), properties: memoryProperties },
     failureFeedback: { type: 'object', additionalProperties: false, required: ['enabled'], properties: { enabled: { type: 'boolean' } } },
     logging: { type: 'object', additionalProperties: false, properties: {
       content: { type: 'boolean' },
@@ -85,6 +89,11 @@ export function validateConfig(raw: unknown): Config {
   if (!['https:', 'http:'].includes(baseUrl.protocol)
     || baseUrl.username || baseUrl.password || baseUrl.search || baseUrl.hash) throw new Failure('invalid_url');
   if (raw.persona.length + 500 >= raw.limits.contextChars) throw new Failure('persona_exceeds_context');
+  if (raw.memory) {
+    let url: URL;
+    try { url = new URL(raw.memory.embeddingBaseUrl); } catch { throw new Failure('invalid_url'); }
+    if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) throw new Failure('invalid_url');
+  }
   if (raw.plugins) {
     const ids = raw.plugins.entries.map(entry => entry.id);
     if (ids.includes('xiaolang-adapter')) throw new Failure('reserved_plugin_id');

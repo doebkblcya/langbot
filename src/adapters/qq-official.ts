@@ -43,7 +43,11 @@ export function normalizeQQ(event: QQBotInboundMessage, appId: string): Incoming
     segments.push({ type: 'mention', userId: appId });
   }
   if (typeof event.content === 'string') segments.push({ type: 'text', text: event.content });
-  for (const attachment of event.attachments ?? []) segments.push({ type: 'unsupported', kind: attachment.content_type ?? 'attachment' });
+  for (const attachment of event.attachments ?? []) {
+    const url = attachment.url?.startsWith('//') ? `https:${attachment.url}` : attachment.url;
+    if (attachment.content_type?.startsWith('image/') && url?.startsWith('https://')) segments.push({ type: 'image', url, mime: attachment.content_type });
+    else segments.push({ type: 'unsupported', kind: attachment.content_type ?? 'attachment' });
+  }
   if (!segments.length) return;
   return {
     account: appId, id: event.messageId, sender: event.senderId, name: event.senderName ?? event.senderId,

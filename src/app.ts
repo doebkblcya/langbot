@@ -17,6 +17,8 @@ import { SqliteStore } from './store.js';
 import { DeepSeekModel } from './model.js';
 import { ToolRegistry } from './tools.js';
 import { Sender, outputSchema } from './output.js';
+import { memoryPlugin } from './memory.js';
+import type { Embeddings } from './embedding.js';
 import { abortable, check, code, Failure } from './errors.js';
 import { checkPlugins, configurePlugins } from './plugins.js';
 import type { PluginStatus } from './plugins.js';
@@ -77,6 +79,9 @@ export interface AppOptions {
   writeLog?: (line: string) => void;
   secrets?: string[];
   configuration?: Configuration;
+  embeddingKey?: string;
+  memoryModel?: Model;
+  embeddings?: Embeddings;
 }
 
 export async function createApp(config: Config, options: AppOptions) {
@@ -94,6 +99,7 @@ export async function createApp(config: Config, options: AppOptions) {
     'xiaolang-intake': ['消息接纳', 'src/messages.ts'], 'xiaolang-deepseek': ['DeepSeek 模型', 'src/model.ts'],
     'xiaolang-output': ['统一发送', 'src/output.ts'], 'xiaolang-chat': ['默认聊天编排', 'src/chat.ts'],
     'xiaolang-fault-feedback': ['故障反馈', 'src/fault-feedback.ts'],
+    'xiaolang-memory': ['聊天与记忆', 'src/memory.ts'],
     'xiaolang-injected-adapter': ['接入服务（测试注入）', 'injected'],
   };
   const stateName = (fiber?: Fiber) => fiber?.state === FiberState.ACTIVE ? 'active' : fiber?.state === FiberState.FAILED ? 'failed'
@@ -143,7 +149,7 @@ export async function createApp(config: Config, options: AppOptions) {
   }
   try {
     await mount(loggingPlugin, { settings: config.logging, report: options.report, write: options.writeLog,
-      secrets: [...(options.secrets ?? []), ...(options.apiKey ? [options.apiKey] : [])] });
+      secrets: [...(options.secrets ?? []), ...(options.apiKey ? [options.apiKey] : []), ...(options.embeddingKey ? [options.embeddingKey] : [])] });
     await mount(storePlugin, config);
     await mount(inspectionPlugin, { config, plugins: pluginList });
     if (options.configuration) await mount({ name: 'xiaolang-configuration', apply(context) {
@@ -155,6 +161,7 @@ export async function createApp(config: Config, options: AppOptions) {
     await mount(clockPlugin, undefined);
     await mount(intakePlugin, config);
     await mount(modelPlugin, undefined);
+    await mount(memoryPlugin, { config, apiKey: options.apiKey, embeddingKey: options.embeddingKey, model: options.memoryModel, embeddings: options.embeddings });
     await mount(outputPlugin, config);
     if (config.failureFeedback?.enabled !== false) await mount(faultFeedbackPlugin, config);
     const settings = config.plugins ?? { directory: 'plugins', entries: [] };

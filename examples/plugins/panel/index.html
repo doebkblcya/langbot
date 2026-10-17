@@ -10,6 +10,7 @@
       <button class="nav" data-view="logs"><span>≋</span>过程日志</button>
       <button class="nav" data-view="model-settings"><span>◉</span>回复模型</button>
       <button class="nav" data-view="qq-settings"><span>↔</span>QQ 接入</button>
+      <button class="nav" data-view="memories"><span>◇</span>聊天与记忆</button>
       <button class="nav" data-view="plugins"><span>⊞</span>插件列表</button>
     </nav>
     <div class="sidebar-bottom"><span class="dot"></span> 小狼控制台<small>仅向可信设备开放访问</small></div>
@@ -40,6 +41,16 @@
       <article class="panel"><div class="panel-title"><div><h2>过程日志 <span id="log-count" class="count">0</span></h2><p class="muted">每 2 秒更新 · 正文为短预览 · 重启后清空</p></div><label class="filter"><input id="follow" type="checkbox" checked>跟随最新</label></div>
         <div class="log-toolbar"><input id="log-filter" type="search" placeholder="按轮次 ID、阶段或内容筛选" aria-label="筛选日志"><button id="clear-filter" class="secondary">清除筛选</button></div>
         <div id="log-list" class="log-list" aria-label="过程日志"><p class="empty">暂无过程日志</p></div>
+      </article>
+    </section>
+    <section id="memories" class="view" hidden>
+      <article class="panel">
+        <div class="panel-title"><div><h2>聊天与记忆</h2><p class="muted">所有已接收聊天共同形成记忆；这里可以查看、纠正和删除。</p></div><button id="memory-config" class="secondary">插件配置</button></div>
+        <p id="memory-status" class="muted" role="status">正在读取…</p>
+        <div class="log-toolbar"><input id="memory-search" type="search" placeholder="搜索记忆内容或用户 ID" aria-label="搜索记忆"><select id="memory-kind" aria-label="记忆类型"><option value="">全部类型</option><option value="profile">人物资料</option><option value="event">经历与计划</option></select><button id="memory-refresh" class="secondary">查询</button></div>
+        <div class="form-actions memory-actions"><button id="memory-add" class="primary">添加记忆</button><button id="memory-process" class="secondary">整理待处理聊天</button><button id="memory-test" class="secondary">测试向量连接</button><button id="memory-reindex" class="secondary">重建向量索引</button></div>
+        <div id="memory-list" class="memory-list"></div>
+        <div class="pagination"><button id="memory-latest" class="secondary">回到最新</button><button id="memory-older" class="secondary" disabled>查看更早</button></div>
       </article>
     </section>
     <section id="plugins" class="view" hidden>
@@ -96,4 +107,15 @@
   </main>
   <dialog id="detail"><div class="dialog-head"><div><p class="eyebrow">对话详情</p><h2 id="detail-title">处理记录</h2></div><button id="close-detail" class="secondary" aria-label="关闭详情">关闭</button></div><div id="detail-body"></div></dialog>
   <dialog id="plugin-detail"><div class="dialog-head"><div><p class="eyebrow">插件详情</p><h2 id="plugin-title">插件</h2></div><button id="close-plugin" class="secondary" aria-label="关闭插件详情">关闭</button></div><div id="plugin-detail-body"></div></dialog>
+  <dialog id="memory-detail"><div class="dialog-head"><div><p class="eyebrow">记忆详情</p><h2>小狼记住的事</h2></div><button id="close-memory" class="secondary">关闭</button></div>
+    <form id="memory-form"><div class="form-grid">
+      <label class="field full">记忆内容<textarea name="content" rows="5" required maxlength="2000"></textarea></label>
+      <label class="field">类型<select name="kind"><option value="profile">人物资料</option><option value="event">经历与计划</option></select></label>
+      <label class="field">重要程度<input name="importance" type="number" min="1" max="5" required value="3"></label>
+      <label class="field full">关联用户 ID<textarea name="people" rows="2" placeholder="每行一个；使用聊天记录里的用户ID"></textarea></label>
+      <label class="field">明确有效期（可选）<input name="validUntil" type="datetime-local"></label>
+      <label class="filter"><input name="pinned" type="checkbox">置顶保留</label>
+    </div><p id="memory-form-message" class="muted" role="status"></p><div class="form-actions"><button id="memory-forget" type="button" class="secondary">删除这条记忆</button><button type="submit" class="primary">保存记忆</button></div></form>
+    <div id="memory-sources"></div>
+  </dialog>
 </body></html>

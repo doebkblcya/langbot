@@ -15,6 +15,8 @@ const labels = {
   turn_completed: '本轮完成', turn_failed: '本轮失败',
   feedback_started: '发送故障提示', feedback_sent: '故障提示已发送', feedback_failed: '故障提示发送失败', feedback_unknown: '故障提示结果未知', feedback_skipped: '未追加故障提示',
   panel_listening: '面板已启动', panel_server_error: '面板服务异常',
+  memory_recalled: '读取聊天与记忆', memory_processing_started: '开始整理记忆', memory_processing_completed: '记忆整理完成',
+  memory_processing_failed: '记忆整理失败', memory_vector_fallback: '向量不可用，使用关键词检索', memory_summary_failed: '聊天摘要整理失败', memory_image_unavailable: '图片暂时无法读取',
 };
 const reasons = {
   private: '私聊默认回复', mention: '@机器人', keyword: '命中触发词', no_trigger: '未 @ 且未命中触发词',

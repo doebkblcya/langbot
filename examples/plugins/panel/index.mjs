@@ -44,8 +44,10 @@ export function createHandler(inspection, configuration, options = {}) {
     try { url = new URL(request.url, `http://${host}`); } catch { return send(400, { error: 'invalid_request' }); }
     try {
       const writeRoute = /^\/api\/settings\/(model|qq|trigger|apply)$/.exec(url.pathname);
+      const memoryRoute = /^\/api\/memory(?:\/(status|action|mutate|[a-f0-9-]{36}))?$/.exec(url.pathname);
+      const recallRoute = /^\/api\/memory-recalls\/([a-f0-9-]{36})$/.exec(url.pathname);
       const pluginRoute = /^\/api\/plugins\/([a-zA-Z0-9_-]{1,64})$/.exec(url.pathname);
-      if (request.method === 'POST' && (writeRoute || pluginRoute)) {
+      if (request.method === 'POST' && (writeRoute || pluginRoute || memoryRoute)) {
         if (!configuration) return send(503, { error: 'configuration_unavailable' });
         const token = request.headers['x-xiaolang-token'];
         if (request.headers.origin !== `http://${host}` || typeof token !== 'string'
@@ -54,6 +56,12 @@ export function createHandler(inspection, configuration, options = {}) {
         }
         if (request.headers['content-type'] !== 'application/json') { request.resume?.(); return send(415, { error: 'json_required' }); }
         const input = await readJson(request);
+        if (memoryRoute) {
+          if (!options.memory) return send(503, { error: 'memory_unavailable' });
+          if (memoryRoute[1] === 'mutate') return send(200, await options.memory.mutate(input));
+          if (memoryRoute[1] === 'action') return send(200, await options.memory.maintain(input?.action));
+          return send(405, { error: 'method_not_allowed' });
+        }
         if (pluginRoute) return send(200, { ...await configuration.savePlugin(pluginRoute[1], input), writeToken });
         if (writeRoute[1] === 'apply') {
           if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).length !== 1 || typeof input.revision !== 'string') throw new Error('invalid_settings_request');
@@ -62,6 +70,15 @@ export function createHandler(inspection, configuration, options = {}) {
         return send(200, { ...await configuration.save(writeRoute[1], input), writeToken });
       }
       if (request.method !== 'GET') { request.resume?.(); return send(405, { error: 'method_not_allowed' }); }
+      if (recallRoute) return options.memory ? send(200, options.memory.recalled(recallRoute[1])) : send(503, { error: 'memory_unavailable' });
+      if (memoryRoute) {
+        if (!options.memory) return send(503, { error: 'memory_unavailable' });
+        const id = memoryRoute[1];
+        if (id === 'status') return send(200, options.memory.status());
+        if (id && !['action', 'mutate'].includes(id)) return send(200, options.memory.detail(id));
+        if (!id) return send(200, options.memory.list(url.searchParams.get('q') ?? '', url.searchParams.get('kind') ?? '', integer(url.searchParams.get('before'), undefined)));
+        return send(405, { error: 'method_not_allowed' });
+      }
       if (pluginRoute) return configuration ? send(200, await configuration.plugin(pluginRoute[1])) : send(503, { error: 'configuration_unavailable' });
       if (url.pathname === '/api/settings') {
         return configuration ? send(200, { ...await configuration.view(), writeToken }) : send(503, { error: 'configuration_unavailable' });
@@ -87,6 +104,10 @@ export function createHandler(inspection, configuration, options = {}) {
       return send(404, { error: 'not_found' });
     } catch (error) {
       const failure = error.code ?? error.message;
+      if (['invalid_memory_request', 'invalid_memory_source'].includes(failure)) return send(400, { error: failure });
+      if (['memory_conflict', 'memory_disabled'].includes(failure)) return send(409, { error: failure });
+      if (failure === 'memory_not_found') return send(404, { error: failure });
+      if (typeof failure === 'string' && failure.startsWith('embedding_')) return send(502, { error: failure });
       const invalid = ['invalid_settings_request', 'invalid_saved_settings', 'invalid_config', 'invalid_qq_config', 'invalid_url', 'invalid_secret', 'invalid_json', 'persona_exceeds_context', 'trigger_configuration_unavailable'];
       if (invalid.includes(failure)) return send(400, { error: failure });
       if (['settings_conflict', 'settings_busy', 'chat_busy', 'no_pending_settings'].includes(failure)) return send(409, { error: failure });
@@ -103,7 +124,7 @@ export async function apply(ctx, config = {}) {
   const host = config.host ?? '127.0.0.1';
   const port = config.port ?? 18080;
   if (!['127.0.0.1', '0.0.0.0'].includes(host) || !Number.isInteger(port) || port < 1 || port > 65535) throw new Error('invalid_panel_config');
-  const server = createServer({ maxHeaderSize: 8192 }, createHandler(ctx.inspection, ctx.get('configuration'), { allowedHosts: config.allowedHosts }));
+  const server = createServer({ maxHeaderSize: 8192 }, createHandler(ctx.inspection, ctx.get('configuration'), { allowedHosts: config.allowedHosts, memory: ctx.get('memory') }));
   server.requestTimeout = 10000;
   server.headersTimeout = 10000;
   server.keepAliveTimeout = 5000;

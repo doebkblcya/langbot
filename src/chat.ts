@@ -5,7 +5,7 @@ import { elapsed, log, messageLog } from './contracts.js';
 import { abortable, check, code, Failure } from './errors.js';
 import { render } from './messages.js';
 
-function size(value: unknown): number { return JSON.stringify(value).length; }
+function size(value: unknown): number { return JSON.stringify(value, (key, item: unknown) => key === 'images' ? undefined : item).length; }
 export function assemble(persona: string, history: ModelMessage[], current: Message, budget: number, toolChars: number): ModelMessage[] {
   const system: ModelMessage = { role: 'system', content: persona };
   const user: ModelMessage = { role: 'user', content: render(current) };
@@ -40,7 +40,9 @@ async function runTurn(ctx: Context, config: Config, turn: Turn, signal: AbortSi
   log(ctx, 'turn_started', turn.id, 'scheduler', { ...messageLog(turn.message), waitMs: elapsed(queuedAt) });
   const tools = ctx.tools.schemas();
   const allowedTools = new Set(tools.map(tool => tool.function.name));
-  const messages = assemble(config.persona, ctx.store.history(turn.message, config.limits.history), turn.message, config.limits.contextChars, size(tools));
+  const memory = await ctx.get('memory')?.prepare(turn, signal);
+  const messages = assemble(config.persona + (memory ? `\n\n${memory.context}` : ''), memory?.history ?? ctx.store.history(turn.message, config.limits.history), turn.message, config.limits.contextChars, size(tools));
+  if (memory?.images.length) messages.at(-1)!.images = memory.images;
   const protocol: ModelMessage[] = [];
   const calls = new Set<string>();
   const streaming = config.output?.mode === 'streaming';

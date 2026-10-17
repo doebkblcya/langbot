@@ -5,6 +5,7 @@ export type Segment =
   | { type: 'text'; text: string }
   | { type: 'mention'; userId: string }
   | { type: 'reply'; messageId: string }
+  | { type: 'image'; url: string; mime?: string }
   | { type: 'unsupported'; kind: string };
 export interface IncomingMessage {
   account: string;
@@ -33,6 +34,7 @@ export interface ModelMessage {
   tool_calls?: ToolCall[];
   tool_call_id?: string;
   reasoning_content?: string;
+  images?: { url: string }[];
 }
 export interface ToolSchema {
   type: 'function';
@@ -55,6 +57,8 @@ export type TurnState = 'queued' | 'running' | 'sending' | 'completed' | 'failed
 export interface Turn { id: string; message: Message; reason: string }
 export interface SendRecord { part: number; text: string; state: 'pending' | 'sending' | 'sent' | 'failed' | 'unknown'; platformId?: string }
 export interface Store {
+  records(query: { after?: number; before?: number; fence?: number; session?: string; limit: number; incoming?: boolean }): ChatRecord[];
+  record(seq: number): ChatRecord | undefined;
   admit(message: Message): Message | undefined;
   history(message: Message, limit: number): ModelMessage[];
   createTurn(message: Message, reason: string): Turn;
@@ -68,6 +72,16 @@ export interface Store {
   toolStart(turn: string, call: ToolCall): void;
   toolEnd(turn: string, call: string, state: string, result: string): void;
   prepareFeedback(turn: string, text: string): boolean;
+}
+export interface ChatRecord { seq: number; session: string; direction: 'in' | 'out'; message: Message; text: string }
+export interface Memory {
+  prepare(turn: Turn, signal: AbortSignal): Promise<{ history: ModelMessage[]; context: string; images: { url: string }[] } | undefined>;
+  status(): Record<string, unknown>;
+  list(query: string, kind?: string, before?: number): Record<string, unknown>;
+  detail(id: string): unknown;
+  mutate(input: unknown): Promise<unknown>;
+  recalled(turn: string): unknown;
+  maintain(action: string): Promise<unknown>;
 }
 export interface Scheduler {
   enqueue(key: string, run: (signal: AbortSignal) => Promise<void>): Promise<void>;
@@ -157,6 +171,7 @@ declare module 'cordis' {
     inspection: Inspection;
     configuration: Configuration;
     faultFeedback: FaultFeedback;
+    memory: Memory;
   }
   interface Events {
     'xiaolang/message'(message: Message): void;

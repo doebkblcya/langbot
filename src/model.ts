@@ -36,7 +36,9 @@ export class DeepSeekModel implements Model {
       response = await this.fetcher(`${this.config.baseUrl.replace(/\/$/, '')}/chat/completions`, {
         method: 'POST', redirect: 'error', signal: combined,
         headers: { Authorization: `Bearer ${this.apiKey}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: this.config.name, messages, stream: !!write, max_tokens: this.config.maxOutputTokens,
+        body: JSON.stringify({ model: this.config.name, messages: messages.map(({ images, ...message }) => images?.length ? { ...message, content: [
+          { type: 'text', text: message.content ?? '' }, ...images.map(image => ({ type: 'image_url', image_url: { url: image.url } })),
+        ] } : message), stream: !!write, max_tokens: this.config.maxOutputTokens,
           thinking: { type: this.config.thinking ? 'enabled' : 'disabled' },
           ...(this.config.thinking ? {
             ...(this.config.reasoningEffort ? { reasoning_effort: this.config.reasoningEffort } : {}),

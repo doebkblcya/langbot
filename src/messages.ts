@@ -28,6 +28,7 @@ export function inspectMessage(raw: unknown, adapter: Pick<Adapter, 'platform' |
     if (segment.type === 'text' && typeof segment.text === 'string') segments.push({ type: 'text', text: segment.text.slice(0, 100_000) });
     else if (segment.type === 'mention' && id(segment.userId)) segments.push({ type: 'mention', userId: id(segment.userId)! });
     else if (segment.type === 'reply' && id(segment.messageId)) segments.push({ type: 'reply', messageId: id(segment.messageId)! });
+    else if (segment.type === 'image' && typeof segment.url === 'string' && segment.url.length <= 4096 && /^https:\/\//.test(segment.url)) segments.push({ type: 'image', url: segment.url, ...(typeof segment.mime === 'string' ? { mime: segment.mime.slice(0, 100) } : {}) });
     else if (segment.type === 'unsupported' && typeof segment.kind === 'string') segments.push({ type: 'unsupported', kind: segment.kind.slice(0, 100) });
     else return invalid;
   }
@@ -45,7 +46,8 @@ export function render(message: Message): string {
     if (part.type === 'text') return part.text;
     if (part.type === 'mention') return `[提及用户:${part.userId}]`;
     if (part.type === 'reply') return `[引用消息:${part.messageId}，原文未加载]`;
+    if (part.type === 'image') return '[图片]';
     return `[暂不支持的消息:${part.kind}]`;
   }).join('');
-  return `[${new Date(message.time).toISOString()} ${message.name} 用户:${message.sender}] ${body}`;
+  return `[${new Date(message.time).toISOString()} ${message.name} 用户:${message.sender} ${message.group ? `群:${message.group}` : '私聊'}] ${body}`;
 }

@@ -152,6 +152,12 @@ export class ChatMemory implements Memory {
   private async search(query: string, people: string[], signal: AbortSignal): Promise<MemoryItem[]> {
     return this.repository.candidates(query, people, await this.vector(query, signal));
   }
+  private sourceLabels(item: MemoryItem): string[] {
+    return item.sources.slice(-3).flatMap(seq => {
+      const row = this.ctx.store.record(seq);
+      return row ? [`seq ${seq}，${row.message.platform}/${row.message.account}，${row.message.group ? `群 ${row.message.group}` : '私聊'}，用户 ${row.message.sender}，${new Date(row.message.time).toISOString()}`] : [];
+    });
+  }
   async prepare(turn: Turn, signal: AbortSignal) {
     if (!this.settings.enabled) return;
     const message = turn.message;
@@ -169,7 +175,7 @@ export class ChatMemory implements Memory {
     const selected: MemoryItem[] = [];
     if (validSummary) { const text = `较早聊天摘要（截至原文seq ${validSummary.through}）：\n${validSummary.body.slice(0, Math.min(1800, remaining / 2))}`; contextParts.push(text); remaining -= text.length; }
     for (const item of items) {
-      const text = `记忆 ${item.id} v${item.version} [${item.kind}] 人物:${item.people.join(',')} 来源seq:${item.sources.join(',')} 更新:${new Date(item.updated).toISOString()}\n${item.content}`;
+      const text = `记忆 ${item.id} v${item.version} [${item.kind}] 人物:${item.people.join(',')} 更新:${new Date(item.updated).toISOString()}\n来源:${this.sourceLabels(item).join('；')}\n${item.content}`;
       if (text.length > remaining) continue;
       selected.push(item); contextParts.push(text); remaining -= text.length;
     }
@@ -277,7 +283,7 @@ export class ChatMemory implements Memory {
       const sourceIds = new Set(sources.map(row => row.seq));
       const people = new Set(sources.flatMap(row => [row.message.sender, ...row.message.segments.flatMap(part => part.type === 'mention' ? [part.userId] : [])]));
       const existingIds = new Set(existing.map(item => item.id));
-      if (values.some(item => !item.sources.length || item.sources.some(seq => !sourceIds.has(seq)) || item.people.some(person => !people.has(person) && !existing.some(old => old.people.includes(person)))
+      if (values.some(item => !item.sources.length || item.sources.some(seq => !sourceIds.has(seq) && !existing.find(old => old.id === item.id)?.sources.includes(seq)) || item.people.some(person => !people.has(person) && !existing.some(old => old.people.includes(person)))
         || (item.id && !existingIds.has(item.id)))) throw new Failure('memory_invalid_source');
       // A human correction or deletion during the API call invalidates this whole stale batch.
       if (this.repository.meta('revision') !== revision) return;
@@ -313,13 +319,15 @@ export class ChatMemory implements Memory {
     if (!this.settings.enabled) return [];
     return [this.ctx.tools.register({ name: 'search_memory', effect: 'read', description: '检索全局共享的人物资料、聊天经历、计划和记忆。按人物ID和来源理解，不限制群/私聊。',
       parameters: { type: 'object', required: ['query'], properties: { query: { type: 'string', minLength: 1, maxLength: 1000 } }, additionalProperties: false },
-      execute: async (args, context) => this.search(String(args.query), [context.message.sender], context.signal),
+      execute: async (args, context) => (await this.search(String(args.query), [context.message.sender], context.signal)).map(item => ({ ...item, origins: this.sourceLabels(item) })),
     }), this.ctx.tools.register({ name: 'read_chat_history', effect: 'read', description: '查阅聊天原文。提供seq可查看该原文前后；可提供session精确定位某会话；省略则读取当前聊天。返回真实来源、用户和时间。',
       parameters: { type: 'object', properties: { seq: { type: 'integer', minimum: 1 }, session: { type: 'string', maxLength: 2000 } }, additionalProperties: false },
       execute: async (args, context) => {
         const record = args.seq ? this.ctx.store.record(Number(args.seq)) : undefined;
         const rows = this.ctx.store.records({ session: typeof args.session === 'string' ? args.session : record?.session ?? context.message.session, after: args.seq ? Math.max(0, Number(args.seq) - 6) : undefined, before: args.seq ? Number(args.seq) + 7 : context.message.seq + 1, limit: 12 });
-        return rows.filter(row => !this.repository.suppressed(row.seq)).map(row => ({ ...publicSource(row), imageDescription: this.imageDescriptions(row.message) }));
+        const visible = rows.filter(row => !this.repository.suppressed(row.seq));
+        const ordered = args.seq ? visible.sort((a, b) => Math.abs(a.seq - Number(args.seq)) - Math.abs(b.seq - Number(args.seq))) : visible.reverse();
+        return ordered.slice(0, 5).map(row => ({ ...publicSource(row), text: row.text.slice(0, args.seq && row.seq === Number(args.seq) ? 900 : 200), imageDescription: this.imageDescriptions(row.message).slice(0, 300) }));
       },
     }), this.ctx.tools.register({ name: 'manage_memory', effect: 'write', description: '仅当用户明确要求记住、修改或忘记某事时使用。修改/忘记前先search_memory取得id和version。新增/修改value需要content、kind(profile/event)、people(用户ID数组)、sources(真实原文seq数组)、importance(1到5)，修改还需id/version。',
       parameters: { type: 'object', required: ['action'], properties: { action: { type: 'string', enum: ['remember', 'update', 'forget'] }, id: { type: 'string' }, version: { type: 'integer' }, value: { type: 'object', additionalProperties: true } }, additionalProperties: false },

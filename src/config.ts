@@ -6,6 +6,8 @@ import type { MemoryConfig } from './memory-config.js';
 import { textTokens } from './context-budget.js';
 import { toolingSchemas, mcpConnections } from './tooling-config.js';
 import type { ToolingConfig } from './tooling-config.js';
+import { proactiveSchema } from './trigger-config.js';
+import type { ProactiveSettings } from './trigger-config.js';
 
 export interface PluginEntry {
   id: string;
@@ -27,7 +29,7 @@ export interface Config {
   triggerWords: string[];
   groupIds: string[];
   chatEnabled: boolean;
-  trigger?: { privateReply: boolean; groupMention: boolean; groupKeywords: boolean; words: string[] };
+  trigger?: { privateReply: boolean; groupMention: boolean; groupKeywords: boolean; words: string[]; proactive?: ProactiveSettings };
   output?: { mode: 'normal' | 'streaming' };
   memory?: MemoryConfig;
   tooling?: ToolingConfig;
@@ -52,6 +54,7 @@ const schema = {
     trigger: { type: 'object', additionalProperties: false, required: ['privateReply', 'groupMention', 'groupKeywords', 'words'], properties: {
       privateReply: { type: 'boolean' }, groupMention: { type: 'boolean' }, groupKeywords: { type: 'boolean' },
       words: { type: 'array', maxItems: 100, uniqueItems: true, items: { type: 'string', minLength: 1, maxLength: 100 } },
+      proactive: proactiveSchema,
     } },
     output: { type: 'object', additionalProperties: false, required: ['mode'], properties: { mode: { enum: ['normal', 'streaming'] } } },
     memory: { type: 'object', additionalProperties: false, required: Object.keys(memoryProperties), properties: memoryProperties },

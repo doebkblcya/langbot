@@ -145,7 +145,7 @@ export class ConfigurationStore implements Configuration {
       model: { ...settings.model, secretConfigured: !!(settings.secrets.deepseek || this.environment.DEEPSEEK_API_KEY) },
       qq: { ...settings.qq, supported: this.base.adapter.module === 'builtin:qq-official',
         secretConfigured: !!(settings.secrets.qq || (qq && this.environment[qq.secretEnv])), transport: 'websocket' },
-      trigger: { ...(settings.trigger ?? triggerSettings(this.base)), supported: !this.base.plugins?.trigger },
+      trigger: { ...triggerSettings({ ...this.base, trigger: settings.trigger ?? this.base.trigger }), supported: !this.base.plugins?.trigger },
       active: { model: this.config.model.name, appId: this.config.adapter.config?.appId, environment: this.config.adapter.config?.environment },
     };
   }

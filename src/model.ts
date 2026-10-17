@@ -1,18 +1,19 @@
 import { setTimeout as delay } from 'node:timers/promises';
 import type { Config } from './config.js';
-import type { Model, ModelMessage, ToolCall, ToolSchema } from './contracts.js';
+import type { Model, ModelMessage, ModelOptions, ToolCall, ToolSchema } from './contracts.js';
 import { object } from './contracts.js';
 import { check, Failure } from './errors.js';
 
 export class DeepSeekModel implements Model {
   constructor(private config: Config['model'], private apiKey: string, private fetcher: typeof fetch = fetch) {}
-  async complete(messages: ModelMessage[], tools: ToolSchema[], signal: AbortSignal): Promise<ModelMessage> {
+  async complete(messages: ModelMessage[], tools: ToolSchema[], signal: AbortSignal, options?: ModelOptions): Promise<ModelMessage> {
+    const config = { ...this.config, ...options };
     for (let attempt = 0; ; attempt++) {
       check(signal);
-      try { return await this.once(messages, tools, signal); }
+      try { return await this.once(messages, tools, signal, undefined, config); }
       catch (error) {
         check(signal);
-        if (!(error instanceof Failure) || !error.retryable || attempt >= this.config.retries) throw error;
+        if (!(error instanceof Failure) || !error.retryable || attempt >= config.retries) throw error;
         await delay(Math.min(500 * 2 ** attempt, 4000), undefined, { signal });
       }
     }
@@ -29,22 +30,22 @@ export class DeepSeekModel implements Model {
       }
     }
   }
-  private async once(messages: ModelMessage[], tools: ToolSchema[], signal: AbortSignal, write?: (delta: string) => Promise<void>): Promise<ModelMessage> {
-    const combined = AbortSignal.any([signal, AbortSignal.timeout(this.config.timeoutMs)]);
+  private async once(messages: ModelMessage[], tools: ToolSchema[], signal: AbortSignal, write?: (delta: string) => Promise<void>, config = this.config): Promise<ModelMessage> {
+    const combined = AbortSignal.any([signal, AbortSignal.timeout(config.timeoutMs)]);
     let response: Response;
     try {
-      response = await this.fetcher(`${this.config.baseUrl.replace(/\/$/, '')}/chat/completions`, {
+      response = await this.fetcher(`${config.baseUrl.replace(/\/$/, '')}/chat/completions`, {
         method: 'POST', redirect: 'error', signal: combined,
         headers: { Authorization: `Bearer ${this.apiKey}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: this.config.name, messages: messages.map(({ images, ...message }) => images?.length ? { ...message, content: [
+        body: JSON.stringify({ model: config.name, messages: messages.map(({ images, ...message }) => images?.length ? { ...message, content: [
           { type: 'text', text: message.content ?? '' }, ...images.map(image => ({ type: 'image_url', image_url: { url: image.url } })),
-        ] } : message), stream: !!write, max_tokens: this.config.maxOutputTokens,
-          thinking: { type: this.config.thinking ? 'enabled' : 'disabled' },
-          ...(this.config.thinking ? {
-            ...(this.config.reasoningEffort ? { reasoning_effort: this.config.reasoningEffort } : {}),
-            ...(this.config.topP !== undefined ? { top_p: this.config.topP } : {}),
-          } : this.config.temperature !== undefined ? { temperature: this.config.temperature } : {}),
-          ...(this.config.stop?.length ? { stop: this.config.stop } : {}), ...(tools.length ? { tools } : {}) }),
+        ] } : message), stream: !!write, max_tokens: config.maxOutputTokens,
+          thinking: { type: config.thinking ? 'enabled' : 'disabled' },
+          ...(config.thinking ? {
+            ...(config.reasoningEffort ? { reasoning_effort: config.reasoningEffort } : {}),
+            ...(config.topP !== undefined ? { top_p: config.topP } : {}),
+          } : config.temperature !== undefined ? { temperature: config.temperature } : {}),
+          ...(config.stop?.length ? { stop: config.stop } : {}), ...(tools.length ? { tools } : {}) }),
       });
     } catch {
       check(signal);

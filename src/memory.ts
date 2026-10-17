@@ -55,6 +55,7 @@ function publicSource(record: ChatRecord) {
     text: record.text.slice(0, 8000), images: record.message.segments.filter(p => p.type === 'image').length };
 }
 export class ChatMemory implements Memory {
+  imageContext(message: Message): string { return this.images.text(message); }
   readonly settings;
   readonly repository: MemoryRepository;
   private controller = new AbortController();

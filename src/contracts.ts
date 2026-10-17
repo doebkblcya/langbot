@@ -42,8 +42,9 @@ export interface ToolSchema {
 }
 export interface Model {
   stream?(messages: ModelMessage[], tools: ToolSchema[], signal: AbortSignal, write: (delta: string) => Promise<void>): Promise<ModelMessage>;
-  complete(messages: ModelMessage[], tools: ToolSchema[], signal: AbortSignal): Promise<ModelMessage>;
+  complete(messages: ModelMessage[], tools: ToolSchema[], signal: AbortSignal, options?: ModelOptions): Promise<ModelMessage>;
 }
+export interface ModelOptions { thinking?: boolean; maxOutputTokens?: number; retries?: number; temperature?: number; stop?: string[] }
 export interface Adapter {
   platform: string;
   account: string;
@@ -75,6 +76,7 @@ export interface Store {
 }
 export interface ChatRecord { seq: number; session: string; direction: 'in' | 'out'; message: Message; text: string }
 export interface Memory {
+  imageContext?(message: Message): string;
   prepare(turn: Turn, signal: AbortSignal): Promise<{ history: ModelMessage[]; context: string; images: { url: string }[] } | undefined>;
   status(): Record<string, unknown>;
   list(query: string, kind?: string, before?: number): Record<string, unknown>;
@@ -86,7 +88,15 @@ export interface Memory {
 export interface Scheduler {
   enqueue(key: string, run: (signal: AbortSignal) => Promise<void>): Promise<void>;
 }
-export interface Trigger { match(message: Message): string | undefined }
+export interface Trigger {
+  match(message: Message): string | undefined;
+  observe?(message: Message, dispatch: (message: Message, reason: string) => void): void;
+  queued?(message: Message, reason: string): void;
+  settled?(message: Message, replied: boolean): void;
+  current?(message: Message): boolean;
+  idle?(): Promise<void>;
+  clear?(): Promise<void>;
+}
 export interface Intake { receive(event: unknown): void }
 export interface ToolContext { message: Message; signal: AbortSignal }
 export interface Tool {

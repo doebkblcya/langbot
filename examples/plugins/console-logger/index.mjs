@@ -18,9 +18,11 @@ const labels = {
   memory_recalled: '读取聊天与记忆', memory_processing_started: '开始整理记忆', memory_processing_completed: '记忆整理完成',
   memory_processing_failed: '记忆整理失败', memory_vector_fallback: '向量不可用，使用关键词检索', memory_summary_failed: '聊天摘要整理失败', memory_image_unavailable: '图片暂时无法读取',
   memory_image_described: '图片描述已生成',
+  proactive_state: '插话状态更新', proactive_observing: '收集待判断消息', proactive_judge_started: '判断是否接话',
+  proactive_decided: '接话判断完成', proactive_skipped: '本次未接话', proactive_judge_failed: '接话判断失败，保持沉默',
 };
 const reasons = {
-  private: '私聊默认回复', mention: '@机器人', keyword: '命中触发词', no_trigger: '未 @ 且未命中触发词',
+  private: '私聊默认回复', mention: '@机器人', keyword: '命中触发词', proactive: '主动插话', no_trigger: '未命中直接触发条件',
   duplicate: '重复消息', own_message: '机器人自身消息', group_not_allowed: '群不在白名单',
   account_mismatch: '账号不匹配', invalid_message: '消息格式无效', chat_disabled: '聊天链路已停用',
 };
@@ -40,7 +42,7 @@ export function formatText(entry) {
   if (entry.part !== undefined) text.push(`分段=${entry.part}/${entry.parts}`);
   if (entry.waitMs !== undefined) text.push(`排队=${entry.waitMs}ms`);
   if (entry.durationMs !== undefined) text.push(`耗时=${entry.durationMs}ms`);
-  if (entry.state) text.push(`状态=${entry.state}`);
+  if (entry.state) text.push(`状态=${({ active: '活跃', idle: '旁观', speak: '决定接话', silent: '保持沉默' })[entry.state] ?? entry.state}`);
   if (entry.errorCode) text.push(`错误=${entry.errorCode}`);
   if (entry.receipt) text.push(`回执=${JSON.stringify(entry.receipt)}`);
   if (entry.plugin) text.push(`插件=${entry.plugin}`);

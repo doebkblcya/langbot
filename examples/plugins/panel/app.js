@@ -14,6 +14,8 @@ const reasons = { private: '私聊默认回复', mention: '@机器人', keyword:
 const descriptions = { memories: ['聊天与记忆', '看看小狼记住了什么，也可以帮它纠正。'], overview: ['运行概览', '看看小狼现在怎么样。'], chats: ['最近聊天', '收到的消息、生成的回复，以及每一轮的处理结果。'], logs: ['过程日志', '从收到消息到发送回复，跟着每一步看。'], plugins: ['插件列表', '查看当前的小狼由哪些插件组成。'], 'model-settings': ['回复模型', '配置模型连接与生成方式。'], 'qq-settings': ['QQ 接入', '配置小狼连接的机器人与消息范围。'] };
 Object.assign(descriptions, { tooling: ['工具与行动', '查看工具、连接和权限，按插件扩展能力。'] });
 Object.assign(stages, { mcp_connected: 'MCP 已连接', mcp_connection_failed: 'MCP 连接失败', mcp_tool_rejected: 'MCP 工具注册失败' });
+Object.assign(stages, { proactive_state: '插话状态更新', proactive_observing: '收集待判断消息', proactive_judge_started: '判断是否接话', proactive_decided: '接话判断完成', proactive_skipped: '本次未接话', proactive_judge_failed: '接话判断失败，保持沉默' });
+Object.assign(reasons, { proactive: '主动插话', no_trigger: '未命中直接触发条件' });
 const dateFormat = new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Shanghai', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false });
 const timeFormat = new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Shanghai', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
 let logs = [], cursor = 0, before, next = null, busy = false, turnRequest = 0, selected, runStarted;
@@ -70,6 +72,7 @@ function renderStatus(status) {
 function logMeta(entry) {
   const values = [];
   if (entry.reason) values.push(reasons[entry.reason] ?? entry.reason);
+  if (entry.code.startsWith('proactive_') && entry.state) values.push(({ active: '活跃', idle: '旁观', speak: '决定接话', silent: '保持沉默' })[entry.state] ?? entry.state);
   if (entry.model) values.push(entry.model);
   if (entry.step) values.push(`步骤 ${entry.step}`);
   if (entry.tool) values.push(`工具 ${entry.tool}`);
@@ -223,6 +226,9 @@ function fillSettings(data, sections = ['model', 'qq', 'trigger']) {
     if (section === 'trigger') {
       for (const name of ['privateReply', 'groupMention', 'groupKeywords']) form.elements.namedItem(name).checked = values[name];
       formValue(form, 'words', (values.words ?? []).join('\n'));
+      form.elements.namedItem('proactiveEnabled').checked = values.proactive.enabled;
+      formValue(form, 'proactiveGroups', values.proactive.groupIds.join('\n'));
+      for (const name of ['activeSeconds', 'idleSeconds', 'idleMessages', 'historyMessages', 'maxRepliesPerMinute']) formValue(form, name, values.proactive[name]);
       for (const control of form.elements) control.disabled = values.supported === false;
       $('trigger-provider').textContent = values.supported === false ? '使用外部替换插件' : '内置默认插件';
       formMessage(section, values.supported === false ? '当前由外部触发插件负责，请使用该插件的配置。' : '保存后应用配置生效。');
@@ -265,7 +271,9 @@ for (const section of ['model', 'qq', 'trigger']) {
     } else if (section === 'qq') value = { appId: control('appId').trim(), environment: control('environment'), groupMessages: control('groupMessages'),
       connectTimeoutMs: Number(control('connectTimeoutSeconds')) * 1000, groupIds: lines(control('groupIds')) };
     else value = { privateReply: form.elements.namedItem('privateReply').checked, groupMention: form.elements.namedItem('groupMention').checked,
-      groupKeywords: form.elements.namedItem('groupKeywords').checked, words: [...new Set(lines(control('words')))] };
+      groupKeywords: form.elements.namedItem('groupKeywords').checked, words: [...new Set(lines(control('words')))],
+      proactive: { enabled: form.elements.namedItem('proactiveEnabled').checked, groupIds: [...new Set(lines(control('proactiveGroups')))],
+        ...Object.fromEntries(['activeSeconds', 'idleSeconds', 'idleMessages', 'historyMessages', 'maxRepliesPerMinute'].map(name => [name, Number(control(name))])) } };
     const button = form.querySelector('button[type="submit"]'); button.disabled = true;
     try {
       const result = await settingsRequest(`/api/settings/${section}`, { revision: settings.revision, value, ...(section === 'trigger' ? {} : { secret: control('secret') }) });

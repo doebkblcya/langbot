@@ -168,6 +168,7 @@ export async function createApp(config: Config, options: AppOptions) {
       context.provide('configuration', options.configuration!);
     } }, undefined);
     await mount(schedulerPlugin, config);
+    await mount(modelPlugin, undefined);
     if (!config.plugins?.trigger) await mount(triggerPlugin, config);
     await mount(toolsPlugin, config);
     await mount(clockPlugin, undefined);
@@ -176,7 +177,6 @@ export async function createApp(config: Config, options: AppOptions) {
     await mount(mcpPlugin, config);
     await mount(skillsPlugin, config);
     await mount(intakePlugin, config);
-    await mount(modelPlugin, undefined);
     await mount(memoryPlugin, { config, apiKey: options.apiKey, embeddingKey: options.embeddingKey, model: options.memoryModel, embeddings: options.embeddings, imageFetch: options.imageFetch });
     await mount(outputPlugin, config);
     if (config.failureFeedback?.enabled !== false) await mount(faultFeedbackPlugin, config);

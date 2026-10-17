@@ -40,7 +40,7 @@ export class ProactiveTrigger {
   constructor(private settings: ProactiveSettings, private runtime: Runtime) {}
   private notify(): void { for (const wake of this.waiters) wake(); this.waiters.clear(); }
   private allowed(message: Message): boolean {
-    return this.settings.enabled && !!message.group && (!this.settings.groupIds.length || this.settings.groupIds.includes(message.group));
+    return this.settings.enabled && !!message.group && !this.settings.excludedGroupIds.includes(message.group);
   }
   private state(message: Message): GroupState | undefined {
     if (!this.allowed(message) || this.clearing) return;

@@ -227,7 +227,7 @@ function fillSettings(data, sections = ['model', 'qq', 'trigger']) {
       for (const name of ['privateReply', 'groupMention', 'groupKeywords']) form.elements.namedItem(name).checked = values[name];
       formValue(form, 'words', (values.words ?? []).join('\n'));
       form.elements.namedItem('proactiveEnabled').checked = values.proactive.enabled;
-      formValue(form, 'proactiveGroups', values.proactive.groupIds.join('\n'));
+      formValue(form, 'proactiveGroups', values.proactive.excludedGroupIds.join('\n'));
       for (const name of ['activeSeconds', 'idleSeconds', 'idleMessages', 'historyMessages', 'maxRepliesPerMinute']) formValue(form, name, values.proactive[name]);
       for (const control of form.elements) control.disabled = values.supported === false;
       $('trigger-provider').textContent = values.supported === false ? '使用外部替换插件' : '内置默认插件';
@@ -272,7 +272,7 @@ for (const section of ['model', 'qq', 'trigger']) {
       connectTimeoutMs: Number(control('connectTimeoutSeconds')) * 1000, groupIds: lines(control('groupIds')) };
     else value = { privateReply: form.elements.namedItem('privateReply').checked, groupMention: form.elements.namedItem('groupMention').checked,
       groupKeywords: form.elements.namedItem('groupKeywords').checked, words: [...new Set(lines(control('words')))],
-      proactive: { enabled: form.elements.namedItem('proactiveEnabled').checked, groupIds: [...new Set(lines(control('proactiveGroups')))],
+      proactive: { enabled: form.elements.namedItem('proactiveEnabled').checked, excludedGroupIds: [...new Set(lines(control('proactiveGroups')))],
         ...Object.fromEntries(['activeSeconds', 'idleSeconds', 'idleMessages', 'historyMessages', 'maxRepliesPerMinute'].map(name => [name, Number(control(name))])) } };
     const button = form.querySelector('button[type="submit"]'); button.disabled = true;
     try {

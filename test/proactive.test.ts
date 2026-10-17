@@ -7,6 +7,8 @@ import type { Log, ModelMessage } from '../src/contracts.js';
 import { normalize } from '../src/messages.js';
 import { createApp } from '../src/app.js';
 import { DeepSeekModel } from '../src/model.js';
+import { validateConfig } from '../src/config.js';
+import { triggerSettings } from '../src/trigger.js';
 import { config, deferred, event, FakeAdapter, FakeModel } from './fixtures.js';
 
 function message(seq: number, group = 100, text = `消息${seq}`) {
@@ -30,6 +32,23 @@ test('one quiet-group message is judged at the deadline; the count threshold tri
   assert.equal(second.model.requests.length, 1);
   assert.deepEqual(JSON.parse(second.model.requests[0]![1]!.content!).pending, [1, 2, 3]);
   await first.value.clear(); await second.value.clear();
+});
+
+test('proactive groups use exclusions; legacy allowed groups are cleared rather than inverted', async () => {
+  const instance = controller(undefined, { idleMessages: 1, excludedGroupIds: ['101'] });
+  instance.observe(1, 101); instance.observe(2, 102); await instance.value.idle();
+  assert.equal(instance.model.requests.length, 1);
+  assert.equal(JSON.parse(instance.model.requests[0]![1]!.content!).group, '102');
+  await instance.value.clear();
+  const base = config();
+  const { excludedGroupIds: _groups, ...old } = proactiveDefaults;
+  const previous = { ...base, trigger: { privateReply: true, groupMention: true, groupKeywords: true, words: ['小狼'],
+    proactive: { ...old, enabled: true, groupIds: ['100'] } } };
+  const migrated = validateConfig(previous);
+  assert.deepEqual(migrated.trigger?.proactive?.excludedGroupIds, []);
+  assert.equal(Object.hasOwn(migrated.trigger!.proactive!, 'groupIds'), false);
+  assert.deepEqual(triggerSettings(previous as unknown as typeof base).proactive.excludedGroupIds, []);
+  assert.equal(proactiveDefaults.idleSeconds, 10); assert.equal(proactiveDefaults.idleMessages, 10);
 });
 
 test('activation is group-local, expires without participation, and a new summons invalidates an in-flight judgement', async () => {
@@ -78,7 +97,7 @@ test('ordinary new messages cannot starve pending participation; failures stay s
 test('an unmentioned follow-up is judged promptly, reuses normal delivery, and cannot expose write tools', async t => {
   const settings = config();
   settings.trigger = { privateReply: true, groupMention: true, groupKeywords: true, words: ['小狼'],
-    proactive: { ...proactiveDefaults, enabled: true, groupIds: ['100'], idleSeconds: 60 } };
+    proactive: { ...proactiveDefaults, enabled: true, excludedGroupIds: ['101'], idleSeconds: 60 } };
   let judgments = 0;
   const model = new FakeModel(async (messages, tools) => {
     if (messages[0]?.content?.includes('你负责判断QQ群聊天')) {
@@ -102,6 +121,8 @@ test('an unmentioned follow-up is judged promptly, reuses normal delivery, and c
   assert.equal(app.ctx.historyReader.recent(1).items[0]?.reason, 'proactive');
   app.ctx.intake.receive(event('别的群聊天', 3, 101)); await app.ctx.chat.idle();
   assert.equal(judgments, 1);
+  app.ctx.intake.receive(event('小狼你好', 4, 101)); await app.ctx.chat.idle();
+  assert.equal(adapter.sent.length, 3); assert.equal(judgments, 1);
 });
 
 test('short judging overrides neither mutate reply model settings nor inherit stop markers or thinking', async () => {

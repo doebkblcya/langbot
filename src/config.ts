@@ -6,7 +6,7 @@ import type { MemoryConfig } from './memory-config.js';
 import { textTokens } from './context-budget.js';
 import { toolingSchemas, mcpConnections } from './tooling-config.js';
 import type { ToolingConfig } from './tooling-config.js';
-import { proactiveSchema } from './trigger-config.js';
+import { proactiveSchema, migrateProactiveConfig } from './trigger-config.js';
 import type { ProactiveSettings } from './trigger-config.js';
 
 export interface PluginEntry {
@@ -92,6 +92,7 @@ const schema = {
 };
 const validate = new Ajv().compile<Config>(schema);
 export function validateConfig(raw: unknown): Config {
+  raw = migrateProactiveConfig(raw);
   if (!validate(raw)) throw new Failure('invalid_config');
   let baseUrl: URL;
   try { baseUrl = new URL(raw.model.baseUrl); }

@@ -109,7 +109,7 @@
         <label class="field">触发词<textarea name="words" rows="5" placeholder="每行一个，例如：小狼"></textarea><small>精确包含匹配，英文区分大小写。多个条件命中仍只回复一次。</small></label>
         <h3>主动插话</h3>
         <label class="switch-line"><span><strong>允许主动参与群聊</strong><small>关闭后仍保留私聊、@ 和触发词回复。判断只看文字和已有图片描述。</small></span><input name="proactiveEnabled" type="checkbox"></label>
-        <label class="field">启用的群 ID<textarea name="proactiveGroups" rows="3" placeholder="每行一个 QQ 官方群 OpenID；留空表示所有允许接入的群"></textarea></label>
+        <label class="field">不主动插话的群（黑名单）<textarea name="proactiveGroups" rows="3" placeholder="每行一个 QQ 官方群 OpenID；留空则所有可接收消息的群都允许主动插话"></textarea><small>黑名单只关闭主动插话，不影响群里的 @ 和触发词回复。</small></label>
         <div class="form-grid">
           <label class="field">活跃持续时间（秒）<input name="activeSeconds" type="number" min="10" max="1800" required><small>被明确召唤或成功发言后刷新。活跃时新消息约等 0.25 秒即判断，连发最多等 1 秒。</small></label>
           <label class="field">旁观收集时间（秒）<input name="idleSeconds" type="number" min="1" max="60" required><small>从第一条新消息开始计时，只有一条也会判断；没有新消息不调用模型。</small></label>

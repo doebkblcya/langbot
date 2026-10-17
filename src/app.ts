@@ -82,6 +82,7 @@ export interface AppOptions {
   embeddingKey?: string;
   memoryModel?: Model;
   embeddings?: Embeddings;
+  imageFetch?: typeof fetch;
 }
 
 export async function createApp(config: Config, options: AppOptions) {
@@ -161,7 +162,7 @@ export async function createApp(config: Config, options: AppOptions) {
     await mount(clockPlugin, undefined);
     await mount(intakePlugin, config);
     await mount(modelPlugin, undefined);
-    await mount(memoryPlugin, { config, apiKey: options.apiKey, embeddingKey: options.embeddingKey, model: options.memoryModel, embeddings: options.embeddings });
+    await mount(memoryPlugin, { config, apiKey: options.apiKey, embeddingKey: options.embeddingKey, model: options.memoryModel, embeddings: options.embeddings, imageFetch: options.imageFetch });
     await mount(outputPlugin, config);
     if (config.failureFeedback?.enabled !== false) await mount(faultFeedbackPlugin, config);
     const settings = config.plugins ?? { directory: 'plugins', entries: [] };

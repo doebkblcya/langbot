@@ -9,7 +9,7 @@ const stages = { application_ready: '小狼已就绪', application_stopping: '�
   model_started: '调用模型', model_completed: '模型返回', model_failed: '模型调用失败', reply_generated: '生成回复',
   tool_started: '调用工具', tool_completed: '工具完成', tool_failed: '工具失败', tool_unknown: '工具结果未知',
   send_started: '发送回复', send_confirmed: 'QQ 已确认发送', send_failed: '发送失败', send_unknown: '发送结果未知', turn_completed: '本轮完成' };
-Object.assign(stages, { memory_recalled: '读取聊天与记忆', memory_processing_started: '开始整理记忆', memory_processing_completed: '记忆整理完成', memory_processing_failed: '记忆整理失败', memory_vector_fallback: '向量不可用，使用关键词检索', memory_summary_failed: '聊天摘要整理失败', memory_image_unavailable: '图片暂时无法读取' });
+Object.assign(stages, { memory_recalled: '读取聊天与记忆', memory_processing_started: '开始整理记忆', memory_processing_completed: '记忆整理完成', memory_processing_failed: '记忆整理失败', memory_vector_fallback: '向量不可用，使用关键词检索', memory_summary_failed: '聊天摘要整理失败', memory_image_unavailable: '图片暂时无法读取', memory_image_described: '图片描述已生成' });
 const reasons = { private: '私聊默认回复', mention: '@机器人', keyword: '命中触发词', no_trigger: '未触发回复', duplicate: '重复消息', own_message: '机器人自身消息', group_not_allowed: '群不在白名单', chat_disabled: '聊天已停用', invalid_message: '格式无效', account_mismatch: '账号不匹配' };
 const descriptions = { memories: ['聊天与记忆', '看看小狼记住了什么，也可以帮它纠正。'], overview: ['运行概览', '看看小狼现在怎么样。'], chats: ['最近聊天', '收到的消息、生成的回复，以及每一轮的处理结果。'], logs: ['过程日志', '从收到消息到发送回复，跟着每一步看。'], plugins: ['插件列表', '查看当前的小狼由哪些插件组成。'], 'model-settings': ['回复模型', '配置模型连接与生成方式。'], 'qq-settings': ['QQ 接入', '配置小狼连接的机器人与消息范围。'] };
 const dateFormat = new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Shanghai', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false });

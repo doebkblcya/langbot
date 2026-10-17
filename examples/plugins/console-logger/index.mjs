@@ -17,6 +17,7 @@ const labels = {
   panel_listening: '面板已启动', panel_server_error: '面板服务异常',
   memory_recalled: '读取聊天与记忆', memory_processing_started: '开始整理记忆', memory_processing_completed: '记忆整理完成',
   memory_processing_failed: '记忆整理失败', memory_vector_fallback: '向量不可用，使用关键词检索', memory_summary_failed: '聊天摘要整理失败', memory_image_unavailable: '图片暂时无法读取',
+  memory_image_described: '图片描述已生成',
 };
 const reasons = {
   private: '私聊默认回复', mention: '@机器人', keyword: '命中触发词', no_trigger: '未 @ 且未命中触发词',

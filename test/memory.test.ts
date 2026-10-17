@@ -186,3 +186,14 @@ test('a fabricated extraction source never enters memory and does not advance th
     assert.equal((app.ctx.memory.list('') as { items: unknown[] }).items.length, 0);
   } finally { await app.stop(); }
 });
+
+test('optional null fields from the extraction model do not block a valid new memory', async () => {
+  const options = config(); options.chatEnabled = false; options.memory = { ...memoryDefaults, enabled: true };
+  const app = await createApp(options, { adapter: new FakeAdapter(), model: new FakeModel(), memoryModel: new FakeModel(async () => ({ role: 'assistant', content: JSON.stringify({ memories: [{ id: null, version: null, content: '用户喜欢喝无糖咖啡。', kind: 'profile', people: ['200'], sources: [1], importance: 3, validUntil: '' }] }) })) });
+  try {
+    app.ctx.intake.receive(event('我喜欢喝无糖咖啡'));
+    await (app.ctx.memory as ChatMemory).process();
+    assert.equal(app.ctx.memory.status().extractionError, null);
+    assert.equal((app.ctx.memory.list('') as { items: unknown[] }).items.length, 1);
+  } finally { await app.stop(); }
+});

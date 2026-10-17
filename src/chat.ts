@@ -149,7 +149,7 @@ export const chatPlugin: Plugin.Object<Config> = {
       const job = ctx.scheduler.enqueue(message.session, queueSignal => {
         if (reason === 'proactive' && ctx.trigger.current?.(message) === false) {
           ctx.store.state(turn.id, 'cancelled', 'proactive_superseded');
-          log(ctx, 'proactive_skipped', turn.id, 'trigger', { ...messageLog(message), reason: '排队期间已有更新消息，本次不接话' });
+          log(ctx, 'proactive_skipped', turn.id, 'trigger', { ...messageLog(message), reason: '排队期间已被明确召唤覆盖或消息过时，本次不接话' });
           return Promise.resolve();
         }
         return executeTurn(ctx, config, turn, AbortSignal.any([queueSignal, controller.signal]), queuedAt).then(() => { replied = true; }).catch(settle);

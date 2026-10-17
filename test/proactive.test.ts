@@ -52,7 +52,7 @@ test('activation is group-local, expires without participation, and a new summon
   await groups.value.clear();
 });
 
-test('newer messages supersede old decisions; failures stay silent and clearing cancels all deferred work', async () => {
+test('ordinary new messages cannot starve pending participation; failures stay silent and clearing cancels deferred work', async () => {
   const started = deferred(), late = deferred<ModelMessage>(); let count = 0;
   const instance = controller(new FakeModel(async () => {
     if (!count++) { started.resolve(); return late.promise; }
@@ -61,8 +61,11 @@ test('newer messages supersede old decisions; failures stay silent and clearing 
   instance.observe(1); await started.promise; instance.observe(2);
   late.resolve({ role: 'assistant', content: '{"reply":true,"reason":"旧话题"}' });
   await instance.value.idle();
-  assert.equal(instance.sent.length, 0); assert.equal(instance.model.requests.length, 2);
-  assert.ok(instance.logs.some(log => log.code === 'proactive_skipped'));
+  assert.deepEqual(instance.sent, [1]); assert.equal(instance.model.requests.length, 2);
+  assert.equal(instance.value.current(message(1)), true);
+  instance.value.queued(message(3), 'mention');
+  assert.equal(instance.value.current(message(1)), false);
+  instance.value.settled(message(3), true);
   await instance.value.clear();
   const broken = controller(new FakeModel(async () => { throw new Error('private-provider-details'); }));
   broken.observe(1); await broken.value.idle();

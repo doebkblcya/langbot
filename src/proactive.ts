@@ -11,6 +11,7 @@ interface GroupState {
   activeUntil: number;
   busy: number;
   generation: number;
+  directSeq: number;
   replies: number[];
   timer?: NodeJS.Timeout;
   due?: number;
@@ -49,7 +50,7 @@ export class ProactiveTrigger {
       for (const [key, value] of this.groups) if (!value.busy && !value.judge && !value.pending.length && value.activeUntil <= Date.now()
         && value.replies.every(time => Date.now() - time >= 60000)) this.groups.delete(key);
       if (this.groups.size >= 500) return;
-      state = { message, pending: [], firstAt: 0, activeUntil: 0, busy: 0, generation: 0, replies: [], dispatch() {} };
+      state = { message, pending: [], firstAt: 0, activeUntil: 0, busy: 0, generation: 0, directSeq: 0, replies: [], dispatch() {} };
       this.groups.set(message.session, state);
     }
     return state;
@@ -76,6 +77,7 @@ export class ProactiveTrigger {
     state.busy++;
     if (reason === 'proactive') return;
     state.message = message;
+    state.directSeq = Math.max(state.directSeq, message.seq);
     state.activeUntil = Date.now() + this.settings.activeSeconds * 1000;
     state.generation++;
     state.pending = [];
@@ -97,7 +99,10 @@ export class ProactiveTrigger {
     }
     this.schedule(state); this.notify();
   }
-  current(message: Message): boolean { return this.groups.get(message.session)?.message.seq === message.seq; }
+  current(message: Message): boolean {
+    const state = this.groups.get(message.session);
+    return !!state && state.directSeq <= message.seq && Date.now() - message.time < 30000;
+  }
   private schedule(state: GroupState): void {
     if (this.clearing || !state.pending.length || state.busy || state.judge) return;
     const now = Date.now(), active = state.activeUntil > now;
@@ -149,15 +154,15 @@ export class ProactiveTrigger {
       const response = await abortable(this.runtime.model.complete(this.messages(state, batch), [], signal,
         { thinking: false, maxOutputTokens: 256, temperature: 0, retries: 0, stop: [] }), signal);
       check(signal);
-      if (generation !== state.generation || state.message.seq !== message.seq || state.busy || this.clearing) {
-        this.report(state, 'proactive_skipped', { reason: '有更新消息或明确召唤，丢弃旧判断' }); return;
+      if (generation !== state.generation || state.busy || this.clearing || Date.now() - message.time >= 30000) {
+        this.report(state, 'proactive_skipped', { ...messageLog(message), reason: '明确召唤已覆盖或消息过时，丢弃旧判断' }); return;
       }
       let parsed: unknown;
       try { parsed = JSON.parse((response.content ?? '').replace(/^\s*```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '')); }
       catch { throw new Failure('proactive_invalid_response'); }
       const result = object(parsed);
       if (!result || typeof result.reply !== 'boolean' || typeof result.reason !== 'string' || !result.reason.trim() || response.tool_calls?.length) throw new Failure('proactive_invalid_response');
-      this.report(state, 'proactive_decided', { reason: result.reason.slice(0, 240), state: result.reply ? 'speak' : 'silent', durationMs: performance.now() - started });
+      this.report(state, 'proactive_decided', { ...messageLog(message), reason: result.reason.slice(0, 240), state: result.reply ? 'speak' : 'silent', durationMs: performance.now() - started });
       if (result.reply) state.dispatch(message, 'proactive');
     } catch (error) {
       if (!controller.signal.aborted && !this.clearing) this.report(state, 'proactive_judge_failed', { reason: '本次保持沉默', errorCode: signal.aborted ? 'proactive_judge_timeout' : code(error), durationMs: performance.now() - started });

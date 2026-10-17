@@ -10,10 +10,11 @@ import { triggerSettings } from './trigger.js';
 import { Ajv } from 'ajv';
 import type { Fields, PluginInfo } from './contracts.js';
 import { memoryDefaults } from './memory-config.js';
+import { toolingDefaults, toolingSections } from './tooling-config.js';
 
 interface QQSettings { appId: string; environment: 'production' | 'sandbox'; groupMessages: 'all' | 'mentions'; connectTimeoutMs: number; groupIds: string[] }
 interface PluginSettings { chatEnabled?: boolean; entries?: Record<string, { enabled?: boolean; config?: Fields }> }
-interface Settings { memory?: Config['memory']; output?: Config['output']; model: Config['model']; qq?: QQSettings; trigger?: NonNullable<Config['trigger']>; plugins?: PluginSettings; secrets: { deepseek?: string; qq?: string; embedding?: string } }
+interface Settings { tooling?: Config['tooling']; memory?: Config['memory']; output?: Config['output']; model: Config['model']; qq?: QQSettings; trigger?: NonNullable<Config['trigger']>; plugins?: PluginSettings; secrets: { deepseek?: string; qq?: string; embedding?: string } }
 interface Document { version: 1; active?: Settings; pending?: Settings; lastApplyFailed?: boolean }
 
 function record(value: unknown): value is Record<string, unknown> { return !!value && typeof value === 'object' && !Array.isArray(value); }
@@ -21,7 +22,7 @@ function keys(value: Record<string, unknown>, allowed: string[]): boolean { retu
 function revision(text: string): string { return createHash('sha256').update(text).digest('hex'); }
 function snapshot(config: Config): Settings {
   const qq = config.adapter.module === 'builtin:qq-official' ? validateQQConfig(config.adapter.config) : undefined;
-  return { memory: structuredClone(config.memory ?? memoryDefaults), model: structuredClone(config.model), ...(qq ? { qq: {
+  return { tooling: structuredClone(config.tooling ?? toolingDefaults), memory: structuredClone(config.memory ?? memoryDefaults), model: structuredClone(config.model), ...(qq ? { qq: {
     appId: qq.appId, environment: qq.environment, groupMessages: qq.groupMessages,
     connectTimeoutMs: qq.connectTimeoutMs, groupIds: [...config.groupIds],
   } } : {}), trigger: triggerSettings(config), output: config.output ?? { mode: 'normal' }, secrets: {} };
@@ -29,6 +30,7 @@ function snapshot(config: Config): Settings {
 function combine(base: Config, settings: Settings): Config {
   const config = structuredClone(base);
   config.memory = structuredClone(settings.memory ?? base.memory ?? memoryDefaults);
+  config.tooling = structuredClone(settings.tooling ?? base.tooling ?? toolingDefaults);
   config.output = structuredClone(settings.output ?? base.output ?? { mode: 'normal' });
   config.model = structuredClone(settings.model);
   config.trigger = structuredClone(settings.trigger ?? triggerSettings(base));
@@ -46,7 +48,7 @@ function combine(base: Config, settings: Settings): Config {
   return validateConfig(config);
 }
 function checkSettings(raw: unknown, base: Config): Settings {
-  if (!record(raw) || !keys(raw, ['model', 'qq', 'trigger', 'plugins', 'output', 'memory', 'secrets']) || !record(raw.secrets)
+  if (!record(raw) || !keys(raw, ['model', 'qq', 'trigger', 'plugins', 'output', 'memory', 'tooling', 'secrets']) || !record(raw.secrets)
     || !keys(raw.secrets, ['deepseek', 'qq', 'embedding'])) throw new Failure('invalid_saved_settings');
   for (const secret of Object.values(raw.secrets)) {
     if (typeof secret !== 'string' || !secret.trim() || secret.length > 4096 || /[\r\n\0]/.test(secret)) throw new Failure('invalid_secret');
@@ -178,7 +180,9 @@ export class ConfigurationStore implements Configuration {
     const info = this.catalog().find(plugin => plugin.id === id);
     if (!info) throw new Failure('plugin_not_found');
     const entry = id === 'xiaolang-memory' ? { id, module: 'builtin', config: { ...config.memory, apiKey: settings.secrets.embedding ?? this.environment.BAILIAN_API_KEY ?? '' } as Fields }
-      : id === 'xiaolang-output' ? { id, module: 'builtin', config: config.output as unknown as Fields } : config.plugins?.entries.find(item => item.id === id);
+      : id === 'xiaolang-output' ? { id, module: 'builtin', config: config.output as unknown as Fields }
+      : toolingSections[id] ? { id, module: 'builtin', config: (config.tooling ?? toolingDefaults)[toolingSections[id]!] as unknown as Fields }
+      : config.plugins?.entries.find(item => item.id === id);
     const chat = id === config.plugins?.chat;
     const toggleable = info.kind === 'external' && !!entry && id !== config.plugins?.trigger && id !== 'panel' && entry.module !== './panel/index.mjs';
     const enabled = chat ? config.chatEnabled : entry ? entry.enabled !== false : info.state !== 'disabled';
@@ -234,6 +238,7 @@ export class ConfigurationStore implements Configuration {
           if (typeof apiKey === 'string' && apiKey.trim()) next.secrets.embedding = apiKey.trim();
           next.memory = memory as unknown as Config['memory'];
         } else if (id === 'xiaolang-output') next.output = values as unknown as Config['output'];
+        else if (toolingSections[id]) { next.tooling ??= structuredClone(this.config.tooling ?? toolingDefaults); Object.assign(next.tooling, { [toolingSections[id]!]: values }); }
         else { next.plugins.entries ??= {}; next.plugins.entries[id] = { ...next.plugins.entries[id], config: values }; }
       }
       checkSettings(next, this.base);

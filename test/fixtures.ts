@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { validateConfig } from '../src/config.js';
 import type { Config } from '../src/config.js';
+import { toolingDefaults } from '../src/tooling-config.js';
 import type { Adapter, IncomingMessage, Message, Model, ModelMessage, ToolSchema } from '../src/contracts.js';
 
 export function config(): Config {
@@ -8,6 +9,7 @@ export function config(): Config {
   value.database = ':memory:';
   value.limits.turnTimeoutMs = 3000;
   value.model.timeoutMs = 1000;
+  value.tooling = structuredClone(toolingDefaults); value.tooling.access.adminIds = ['200'];
   return value;
 }
 export function event(text: string, messageId = 1, group: number | string | null = 100, user: number | string = 200): IncomingMessage {

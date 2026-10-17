@@ -16,6 +16,11 @@ import { SessionQueue } from './scheduler.js';
 import { SqliteStore } from './store.js';
 import { DeepSeekModel } from './model.js';
 import { ToolRegistry } from './tools.js';
+import { toolingDefaults, toolingSchemas } from './tooling-config.js';
+import { webToolsPlugin } from './web-tools.js';
+import { mcpPlugin } from './mcp.js';
+import { skillsPlugin } from './skills.js';
+import { basicToolsPlugin } from './basic-tools.js';
 import { Sender, outputSchema } from './output.js';
 import { memoryPlugin } from './memory.js';
 import type { Embeddings } from './embedding.js';
@@ -55,13 +60,16 @@ export const intakePlugin: Plugin.Object<Config> = {
     } });
   },
 };
-export const toolsPlugin: Plugin.Object<void> = {
-  name: 'xiaolang-tools', apply(ctx) { ctx.provide('tools', new ToolRegistry()); },
+export const toolsPlugin: Plugin.Object<Config> = {
+  name: 'xiaolang-tools', apply(ctx, config) {
+    ctx.get('configuration')?.registerPlugin('xiaolang-tools', toolingSchemas.access);
+    ctx.provide('tools', new ToolRegistry((config.tooling ?? toolingDefaults).access.adminIds));
+  },
 };
 export const clockPlugin: Plugin.Object<void> = {
   name: 'xiaolang-clock', inject: ['tools'], apply(ctx) {
     ctx.effect(() => ctx.tools.register({
-      name: 'current_time', description: '查询当前时间，返回 UTC 与北京时间。', effect: 'read',
+      name: 'current_time', source: 'xiaolang-clock', description: '查询当前时间，返回 UTC 与北京时间。', effect: 'read',
       parameters: { type: 'object', properties: {}, additionalProperties: false },
       execute: async () => ({ utc: new Date().toISOString(), shanghai: new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }) }),
     }));
@@ -83,6 +91,7 @@ export interface AppOptions {
   memoryModel?: Model;
   embeddings?: Embeddings;
   imageFetch?: typeof fetch;
+  webFetch?: typeof fetch;
 }
 
 export async function createApp(config: Config, options: AppOptions) {
@@ -101,6 +110,8 @@ export async function createApp(config: Config, options: AppOptions) {
     'xiaolang-output': ['统一发送', 'src/output.ts'], 'xiaolang-chat': ['默认聊天编排', 'src/chat.ts'],
     'xiaolang-fault-feedback': ['故障反馈', 'src/fault-feedback.ts'],
     'xiaolang-memory': ['聊天与记忆', 'src/memory.ts'],
+    'xiaolang-web': ['网页搜索与阅读', 'src/web-tools.ts'], 'xiaolang-mcp': ['MCP 接入', 'src/mcp.ts'],
+    'xiaolang-skills': ['Skills 接入', 'src/skills.ts'], 'xiaolang-basic-tools': ['基础计算工具', 'src/basic-tools.ts'],
     'xiaolang-injected-adapter': ['接入服务（测试注入）', 'injected'],
   };
   const stateName = (fiber?: Fiber) => fiber?.state === FiberState.ACTIVE ? 'active' : fiber?.state === FiberState.FAILED ? 'failed'
@@ -158,8 +169,12 @@ export async function createApp(config: Config, options: AppOptions) {
     } }, undefined);
     await mount(schedulerPlugin, config);
     if (!config.plugins?.trigger) await mount(triggerPlugin, config);
-    await mount(toolsPlugin, undefined);
+    await mount(toolsPlugin, config);
     await mount(clockPlugin, undefined);
+    await mount(basicToolsPlugin, undefined);
+    await mount(webToolsPlugin, { config, apiKey: options.apiKey, fetcher: options.webFetch });
+    await mount(mcpPlugin, config);
+    await mount(skillsPlugin, config);
     await mount(intakePlugin, config);
     await mount(modelPlugin, undefined);
     await mount(memoryPlugin, { config, apiKey: options.apiKey, embeddingKey: options.embeddingKey, model: options.memoryModel, embeddings: options.embeddings, imageFetch: options.imageFetch });

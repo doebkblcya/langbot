@@ -12,6 +12,8 @@ const stages = { application_ready: '小狼已就绪', application_stopping: '�
 Object.assign(stages, { memory_recalled: '读取聊天与记忆', memory_processing_started: '开始整理记忆', memory_processing_completed: '记忆整理完成', memory_processing_failed: '记忆整理失败', memory_vector_fallback: '向量不可用，使用关键词检索', memory_summary_failed: '聊天摘要整理失败', memory_image_unavailable: '图片暂时无法读取', memory_image_described: '图片描述已生成' });
 const reasons = { private: '私聊默认回复', mention: '@机器人', keyword: '命中触发词', no_trigger: '未触发回复', duplicate: '重复消息', own_message: '机器人自身消息', group_not_allowed: '群不在白名单', chat_disabled: '聊天已停用', invalid_message: '格式无效', account_mismatch: '账号不匹配' };
 const descriptions = { memories: ['聊天与记忆', '看看小狼记住了什么，也可以帮它纠正。'], overview: ['运行概览', '看看小狼现在怎么样。'], chats: ['最近聊天', '收到的消息、生成的回复，以及每一轮的处理结果。'], logs: ['过程日志', '从收到消息到发送回复，跟着每一步看。'], plugins: ['插件列表', '查看当前的小狼由哪些插件组成。'], 'model-settings': ['回复模型', '配置模型连接与生成方式。'], 'qq-settings': ['QQ 接入', '配置小狼连接的机器人与消息范围。'] };
+Object.assign(descriptions, { tooling: ['工具与行动', '查看工具、连接和权限，按插件扩展能力。'] });
+Object.assign(stages, { mcp_connected: 'MCP 已连接', mcp_connection_failed: 'MCP 连接失败', mcp_tool_rejected: 'MCP 工具注册失败' });
 const dateFormat = new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Shanghai', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false });
 const timeFormat = new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Shanghai', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
 let logs = [], cursor = 0, before, next = null, busy = false, turnRequest = 0, selected, runStarted;
@@ -32,6 +34,7 @@ function showView(view) {
   [$('page-title').textContent, $('page-description').textContent] = descriptions[view];
   if (view === 'chats') refreshTurns();
   if (view === 'memories') refreshMemory();
+  if (view === 'tooling') refreshTools();
   if (view === 'logs') renderLogs();
   if (view.endsWith('-settings') && !settings) loadSettings();
 }
@@ -169,6 +172,7 @@ async function poll() {
     cursor = page.cursor;
     $('connection').textContent = '面板在线'; $('connection').className = 'badge good'; $('synced').textContent = time(Date.now()); notice('');
     if (!before && !$('chats').hidden) await refreshTurns();
+    if (!$('tooling').hidden) await refreshTools();
   } catch { $('connection').textContent = '面板连接中断'; $('connection').className = 'badge bad'; notice('无法连接面板，当前保留上次显示的数据。请检查 SSH 隧道，连接恢复后会自动更新。'); }
   finally { busy = false; }
 }
@@ -322,7 +326,7 @@ function renderPlugin(detail) {
       input = element('select');
       if (!required) { const option = element('option', '', '默认'); option.value = ''; input.append(option); }
       for (const item of definition.enum) { const option = element('option', '', detail.id === 'xiaolang-output' ? ({ normal: '普通输出', streaming: '流式输出' }[item] ?? String(item)) : String(item)); option.value = String(item); input.append(option); }
-    } else if (definition.type === 'array') { input = element('textarea'); input.rows = 3; }
+    } else if (definition.type === 'array' || (definition.type === 'string' && definition.maxLength > 4096)) { input = element('textarea'); input.rows = definition.type === 'array' ? 3 : 8; }
     else { input = element('input'); input.type = definition.writeOnly ? 'password' : definition.type === 'boolean' ? 'checkbox' : ['number', 'integer'].includes(definition.type) ? 'number' : 'text'; }
     input.name = name;
     if (definition.type === 'boolean') input.checked = detail.config[name] ?? definition.default ?? false;
@@ -430,3 +434,17 @@ $('memory-forget').addEventListener('click', async () => {
   try { await settingsRequest('/api/memory/mutate', { action: 'forget', id: editingMemory.id, version: editingMemory.version }); $('memory-detail').close(); await refreshMemory(); }
   catch (error) { $('memory-form-message').textContent = error.message; }
 });
+
+async function refreshTools() {
+  try {
+    const data = await get('/api/tools');
+    $('tool-rows').replaceChildren(...data.items.map(tool => {
+      const row = element('tr'), name = element('td');
+      name.append(element('strong', 'mono', tool.name), element('p', 'muted', tool.description.slice(0, 160)));
+      row.append(name, element('td', 'mono', tool.source), element('td', '', tool.access === 'admin' ? '仅管理员' : '所有用户')); return row;
+    }));
+    $('tool-connections').textContent = data.mcp.length ? data.mcp.map(server => `MCP ${server.name}：${words[server.state] ?? server.state}，${server.tools} 个工具${server.errorCode ? '（'+server.errorCode+'）' : ''}`).join('；') : '尚未配置 MCP 服务。';
+    $('skill-catalog').textContent = data.skills.length ? '已安装 Skills：'+data.skills.map(skill => skill.name).join('、') : '尚未安装 Skill。放入 Skills 目录后，应用配置或重启发现。';
+  } catch { $('tool-connections').textContent = '暂时无法读取工具状态。'; }
+}
+for (const button of document.querySelectorAll('[data-tool-config]')) button.addEventListener('click', () => openPlugin(button.dataset.toolConfig));

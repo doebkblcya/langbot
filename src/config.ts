@@ -4,6 +4,8 @@ import { Failure } from './errors.js';
 import { memoryProperties } from './memory-config.js';
 import type { MemoryConfig } from './memory-config.js';
 import { textTokens } from './context-budget.js';
+import { toolingSchemas, mcpConnections } from './tooling-config.js';
+import type { ToolingConfig } from './tooling-config.js';
 
 export interface PluginEntry {
   id: string;
@@ -28,6 +30,7 @@ export interface Config {
   trigger?: { privateReply: boolean; groupMention: boolean; groupKeywords: boolean; words: string[] };
   output?: { mode: 'normal' | 'streaming' };
   memory?: MemoryConfig;
+  tooling?: ToolingConfig;
   failureFeedback?: { enabled: boolean };
   plugins?: PluginConfig;
   logging?: { content?: boolean; previewChars?: number };
@@ -52,6 +55,7 @@ const schema = {
     } },
     output: { type: 'object', additionalProperties: false, required: ['mode'], properties: { mode: { enum: ['normal', 'streaming'] } } },
     memory: { type: 'object', additionalProperties: false, required: Object.keys(memoryProperties), properties: memoryProperties },
+    tooling: { type: 'object', additionalProperties: false, required: Object.keys(toolingSchemas), properties: toolingSchemas },
     failureFeedback: { type: 'object', additionalProperties: false, required: ['enabled'], properties: { enabled: { type: 'boolean' } } },
     logging: { type: 'object', additionalProperties: false, properties: {
       content: { type: 'boolean' },
@@ -98,6 +102,7 @@ export function validateConfig(raw: unknown): Config {
     try { url = new URL(raw.memory.embeddingBaseUrl); } catch { throw new Failure('invalid_url'); }
     if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) throw new Failure('invalid_url');
   }
+  if (raw.tooling) mcpConnections(raw.tooling.mcp.servers);
   if (raw.plugins) {
     const ids = raw.plugins.entries.map(entry => entry.id);
     if (ids.includes('xiaolang-adapter')) throw new Failure('reserved_plugin_id');

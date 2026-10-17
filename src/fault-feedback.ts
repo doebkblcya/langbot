@@ -14,7 +14,7 @@ const reasons: Record<string, string> = {
   step_budget: '模型与工具调用达到次数上限', too_many_tool_calls: '模型一次请求了过多工具',
   duplicate_tool_call: '模型重复请求了同一工具调用', tool_outcome_unknown: '工具操作结果未知，请先核对，避免重复操作',
   tool_unavailable: '需要的工具或插件不可用', invalid_tool_arguments: '工具参数不符合要求',
-  tool_execution_failed: '工具执行失败', internal_error: '小狼内部或插件处理异常',
+  tool_execution_failed: '工具执行失败', tool_admin_required: '此工具仅管理员可执行', internal_error: '小狼内部或插件处理异常',
 };
 export function failureText(failure: string, turn: string): string {
   const http = /^model_http_([1-5][0-9]{2})$/.exec(failure);

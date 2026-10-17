@@ -41,9 +41,9 @@
     "turnTimeoutMs": 120000,
     "contextTokens": 100000,
     "history": 100,
-    "steps": 5,
+    "steps": 8,
     "toolTimeoutMs": 10000,
-    "toolResultChars": 2000,
+    "toolResultChars": 12000,
     "replyChars": 1500
   }
 }

@@ -94,11 +94,16 @@ export interface Tool {
   description: string;
   parameters: Fields;
   effect?: 'read' | 'write';
+  access?: 'everyone' | 'admin';
+  source?: string;
+  timeoutMs?: number;
   execute(args: Fields, context: ToolContext): Promise<unknown>;
 }
 export interface Tools {
   register(tool: Tool): () => void;
-  schemas(): ToolSchema[];
+  schemas(message?: Message): ToolSchema[];
+  list(): { name: string; description: string; source: string; access: 'everyone' | 'admin'; effect: 'read' | 'write' }[];
+  timeout(name: string): number | undefined;
   execute(call: ToolCall, message: Message, signal: AbortSignal): Promise<unknown>;
 }
 export interface ReplyStream {
@@ -172,6 +177,8 @@ declare module 'cordis' {
     configuration: Configuration;
     faultFeedback: FaultFeedback;
     memory: Memory;
+    mcp: { status(): unknown[] };
+    skills: { status(): unknown[] };
   }
   interface Events {
     'xiaolang/message'(message: Message): void;

@@ -40,7 +40,7 @@ async function executeTurn(ctx: Context, config: Config, turn: Turn, parent: Abo
 async function runTurn(ctx: Context, config: Config, turn: Turn, signal: AbortSignal, queuedAt: number): Promise<void> {
   ctx.store.state(turn.id, 'running');
   log(ctx, 'turn_started', turn.id, 'scheduler', { ...messageLog(turn.message), waitMs: elapsed(queuedAt) });
-  const tools = ctx.tools.schemas();
+  const tools = ctx.tools.schemas(turn.message);
   const allowedTools = new Set(tools.map(tool => tool.function.name));
   const memory = await ctx.get('memory')?.prepare(turn, signal);
   const measure = (value: unknown) => contextSize(value, config.limits);
@@ -88,7 +88,7 @@ async function runTurn(ctx: Context, config: Config, turn: Turn, signal: AbortSi
       try {
         if (step + 1 >= config.limits.steps) throw new Failure('step_budget');
         if (!allowedTools.has(call.function.name)) throw new Failure('tool_unavailable');
-        const toolSignal = AbortSignal.any([signal, AbortSignal.timeout(config.limits.toolTimeoutMs)]);
+        const toolSignal = AbortSignal.any([signal, AbortSignal.timeout(ctx.tools.timeout(call.function.name) ?? config.limits.toolTimeoutMs)]);
         const value = await ctx.tools.execute(call, turn.message, toolSignal);
         result = JSON.stringify({ ok: true, result: value ?? null });
         if (result.length > config.limits.toolResultChars) result = JSON.stringify({ ok: true, truncated: true, preview: result.slice(0, config.limits.toolResultChars - 100) });

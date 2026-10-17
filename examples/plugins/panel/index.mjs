@@ -15,12 +15,12 @@ function integer(value, fallback, maximum = Number.MAX_SAFE_INTEGER) {
   if (!/^[0-9]+$/.test(value) || !Number.isSafeInteger(Number(value)) || Number(value) > maximum) throw new Error('invalid_query');
   return Number(value);
 }
-async function readJson(request) {
+async function readJson(request, maximum = 16384) {
   let size = 0;
   const chunks = [];
   for await (const chunk of request) {
     const bytes = Buffer.from(chunk); size += bytes.length;
-    if (size > 16384) { request.resume?.(); throw new Error('body_too_large'); }
+    if (size > maximum) { request.resume?.(); throw new Error('body_too_large'); }
     chunks.push(bytes);
   }
   try { return JSON.parse(Buffer.concat(chunks).toString('utf8')); }
@@ -55,7 +55,7 @@ export function createHandler(inspection, configuration, options = {}) {
           request.resume?.(); return send(403, { error: 'write_authorization_required' });
         }
         if (request.headers['content-type'] !== 'application/json') { request.resume?.(); return send(415, { error: 'json_required' }); }
-        const input = await readJson(request);
+        const input = await readJson(request, pluginRoute?.[1] === 'xiaolang-mcp' ? 131072 : 16384);
         if (memoryRoute) {
           if (!options.memory) return send(503, { error: 'memory_unavailable' });
           if (memoryRoute[1] === 'mutate') return send(200, await options.memory.mutate(input));
@@ -88,6 +88,7 @@ export function createHandler(inspection, configuration, options = {}) {
         return send(200, await readFile(new URL(file, import.meta.url)), type);
       }
       if (url.pathname === '/api/status') return send(200, inspection.status());
+      if (url.pathname === '/api/tools') return send(200, { items: options.tools?.list() ?? [], mcp: options.mcp?.status() ?? [], skills: options.skills?.status() ?? [] });
       if (url.pathname === '/api/logs') return send(200, inspection.logs(integer(url.searchParams.get('after'), 0)));
       if (url.pathname === '/api/turns') {
         const limit = integer(url.searchParams.get('limit'), 25, 100);
@@ -108,7 +109,7 @@ export function createHandler(inspection, configuration, options = {}) {
       if (['memory_conflict', 'memory_disabled'].includes(failure)) return send(409, { error: failure });
       if (failure === 'memory_not_found') return send(404, { error: failure });
       if (typeof failure === 'string' && failure.startsWith('embedding_')) return send(502, { error: failure });
-      const invalid = ['invalid_settings_request', 'invalid_saved_settings', 'invalid_config', 'invalid_qq_config', 'invalid_url', 'invalid_secret', 'invalid_json', 'persona_exceeds_context', 'trigger_configuration_unavailable'];
+      const invalid = ['invalid_mcp_config', 'invalid_settings_request', 'invalid_saved_settings', 'invalid_config', 'invalid_qq_config', 'invalid_url', 'invalid_secret', 'invalid_json', 'persona_exceeds_context', 'trigger_configuration_unavailable'];
       if (invalid.includes(failure)) return send(400, { error: failure });
       if (['settings_conflict', 'settings_busy', 'chat_busy', 'no_pending_settings'].includes(failure)) return send(409, { error: failure });
       if (failure === 'plugin_not_found') return send(404, { error: failure });
@@ -124,7 +125,8 @@ export async function apply(ctx, config = {}) {
   const host = config.host ?? '127.0.0.1';
   const port = config.port ?? 18080;
   if (!['127.0.0.1', '0.0.0.0'].includes(host) || !Number.isInteger(port) || port < 1 || port > 65535) throw new Error('invalid_panel_config');
-  const server = createServer({ maxHeaderSize: 8192 }, createHandler(ctx.inspection, ctx.get('configuration'), { allowedHosts: config.allowedHosts, memory: ctx.get('memory') }));
+  const server = createServer({ maxHeaderSize: 8192 }, createHandler(ctx.inspection, ctx.get('configuration'), { allowedHosts: config.allowedHosts,
+    memory: ctx.get('memory'), tools: ctx.get('tools'), mcp: ctx.get('mcp'), skills: ctx.get('skills') }));
   server.requestTimeout = 10000;
   server.headersTimeout = 10000;
   server.keepAliveTimeout = 5000;

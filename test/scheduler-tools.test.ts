@@ -22,7 +22,7 @@ test('same-session FIFO and independent-session progress respect concurrency', a
 });
 
 test('tool arguments are validated and plugin removal cancels an in-flight execution', async () => {
-  const tools = new ToolRegistry();
+  const tools = new ToolRegistry(['200']);
   let executed = 0;
   const started = deferred();
   const remove = tools.register({ name: 'test', description: 'test', parameters: { type: 'object', properties: { value: { type: 'integer' } }, required: ['value'], additionalProperties: false },
